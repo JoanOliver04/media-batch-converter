@@ -134,6 +134,24 @@ class BatchSummaryTests(unittest.TestCase):
         self.assertEqual(summary.warning_count, 2)
         self.assertIn("Avisos de archivos: 2", summary_text(summary))
 
+    def test_animation_outcomes_are_aggregated(self) -> None:
+        results = tuple(
+            FileResult(
+                Path(mode),
+                Path(mode + ".out"),
+                ResultStatus.CONVERTED,
+                10,
+                5,
+                animation_mode=mode,
+            )
+            for mode in ("preserve", "extract_frames", "first_frame")
+        )
+        summary = BatchSummary(3, results, 1)
+        self.assertEqual(summary.animation_count("preserve"), 1)
+        text = summary_text(summary)
+        self.assertIn("Animaciones extraídas: 1", text)
+        self.assertIn("Animaciones reducidas al primer fotograma: 1", text)
+
     def test_elapsed_and_human_readable_formatting(self) -> None:
         summary = BatchSummary(0, (), 62.4)
         self.assertEqual(format_duration(summary.elapsed_seconds), "01:02")

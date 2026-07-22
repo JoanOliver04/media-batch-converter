@@ -16,6 +16,14 @@ class ResultStatus(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class FrameResult:
+    output_path: Path
+    duration_ms: int
+    output_bytes: int
+    sha256: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class FileResult:
     source_path: Path
     output_path: Path | None
@@ -34,6 +42,11 @@ class FileResult:
     output_height: int | None = None
     quality: int | None = None
     sha256: str | None = None
+    animation_mode: str | None = None
+    frame_count: int | None = None
+    animation_loop: int | None = None
+    frame_durations_ms: tuple[int, ...] = field(default_factory=tuple)
+    frames: tuple[FrameResult, ...] = field(default_factory=tuple)
 
     @property
     def bytes_saved(self) -> int:
@@ -100,6 +113,9 @@ class BatchSummary:
     @property
     def warning_count(self) -> int:
         return sum(len(result.warnings) for result in self.results)
+
+    def animation_count(self, mode: str) -> int:
+        return sum(result.animation_mode == mode for result in self.results)
 
     @property
     def original_bytes(self) -> int:
@@ -195,6 +211,9 @@ def summary_text(summary: BatchSummary) -> str:
             f"Renombrados por colisión: {summary.renamed}",
             f"Colisiones de nombre detectadas: {summary.name_collisions}",
             f"Avisos de archivos: {summary.warning_count}",
+            f"Animaciones conservadas: {summary.animation_count('preserve')}",
+            f"Animaciones extraídas: {summary.animation_count('extract_frames')}",
+            f"Animaciones reducidas al primer fotograma: {summary.animation_count('first_frame')}",
             f"Fallidos: {summary.failed}",
             f"Tamaño original procesado: {format_bytes(summary.original_bytes)}",
             f"Tamaño de salida: {format_bytes(summary.output_bytes)}",

@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from tkinter import TclError, Tk
 
+from PIL import Image
+
 from presets import (
     CUSTOM_PRESET_ID,
     IMAGE_PRESETS,
@@ -92,6 +94,8 @@ class SettingsTests(unittest.TestCase):
             store.save_report_absolute_paths(True)
             self.assertTrue(store.load_generate_report())
             self.assertTrue(store.load_report_absolute_paths())
+            store.save_animation_mode("first_frame")
+            self.assertEqual(store.load_animation_mode(), "first_frame")
 
             store.save_output_policy("invalid")
             self.assertEqual(store.load_output_policy(), "skip")
@@ -151,6 +155,25 @@ class PresetUiTests(unittest.TestCase):
         options = self.panel.opciones_conversion()
         self.assertFalse(options["generate_report"])
         self.assertFalse(options["report_absolute_paths"])
+
+    def test_animation_controls_hide_for_static_and_show_for_animation(self) -> None:
+        static = Path(self.temporary.name) / "static.png"
+        animated = Path(self.temporary.name) / "animated.gif"
+        Image.new("RGB", (2, 2), "red").save(static)
+        first = Image.new("RGB", (2, 2), "red")
+        second = Image.new("RGB", (2, 2), "blue")
+        first.save(animated, save_all=True, append_images=[second], duration=50)
+
+        self.panel.seleccion.set(str(static))
+        self.panel.update_animation_controls()
+        self.assertFalse(self.panel.animation_frame.winfo_manager())
+
+        self.panel.seleccion.set(str(animated))
+        self.panel.update_animation_controls()
+        self.assertTrue(self.panel.animation_frame.winfo_manager())
+        self.panel.formato.set("JPEG")
+        self.panel.animation_mode.set("preserve")
+        self.assertIsNotNone(self.panel.validar_inicio())
 
     def test_apply_modify_and_reapply_preset(self) -> None:
         self.panel.aplicar_preset_id("general_mobile_asset")

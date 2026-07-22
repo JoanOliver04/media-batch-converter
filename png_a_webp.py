@@ -14,6 +14,13 @@ from pathlib import Path
 from tkinter import BooleanVar, IntVar, StringVar, Tk, filedialog, messagebox
 from tkinter import ttk
 
+from animation_handling import (
+    AnimationMode,
+    animation_supported,
+    frame_directory,
+    frame_number_width,
+    webp_frame_durations,
+)
 from batch_processing import discover_files, safe_output_directory
 from conversion_report import (
     HashCancelled,
@@ -22,7 +29,13 @@ from conversion_report import (
     sha256_file,
     write_report_atomic,
 )
-from conversion_results import BatchSummary, FileResult, ResultStatus, safe_file_size
+from conversion_results import (
+    BatchSummary,
+    FileResult,
+    FrameResult,
+    ResultStatus,
+    safe_file_size,
+)
 from filename_normalization import collision_keys, output_filename, path_key
 from output_policy import (
     OutputAction,
@@ -33,6 +46,9 @@ from output_policy import (
 )
 from image_validation import (
     ImageValidationError,
+    ImageWarning,
+    ImageWarningCode,
+    WarningSeverity,
     output_size_warnings,
     validate_image,
 )
@@ -670,6 +686,7 @@ class PanelImagen(PanelConversor):
             parent, raiz, "Conversor de imágenes", EXT_IMAGEN, FORMATOS_IMAGEN
         )
         self.webp_mode = StringVar(value=WebPMode.AUTOMATIC.value)
+        self.animation_mode = StringVar(value=self.settings_store.load_animation_mode())
         self.webp_help = StringVar()
         self.modos_seleccionados: dict[Path, WebPMode] = {}
         self._bloqueado = False
@@ -793,6 +810,78 @@ class PanelImagen(PanelConversor):
             variable.trace_add("write", self.resize_settings_changed)
         self.actualizar_controles_resize()
         self.aplicar_preset_id(self.settings_store.load_last_image_preset())
+        for row in range(8, 5, -1):
+            for widget in self.grid_slaves(row=row):
+                widget.grid_configure(row=row + 1)
+        self.animation_frame = ttk.LabelFrame(
+            self, text="Tratamiento de animaciones", padding=(10, 7)
+        )
+        self.animation_frame.grid(row=6, column=0, sticky="ew", pady=(0, 12))
+        for column, (label, mode) in enumerate(
+            (
+                ("Conservar animación", AnimationMode.PRESERVE),
+                ("Extraer fotogramas", AnimationMode.EXTRACT_FRAMES),
+                ("Solo primer fotograma", AnimationMode.FIRST_FRAME),
+            )
+        ):
+            ttk.Radiobutton(
+                self.animation_frame,
+                text=label,
+                value=mode.value,
+                variable=self.animation_mode,
+                command=self.animation_mode_changed,
+            ).grid(row=0, column=column, padx=(0, 16), sticky="w")
+        self.animation_help = ttk.Label(
+            self.animation_frame,
+            text="La política se aplica globalmente a las animaciones del lote.",
+            wraplength=700,
+        )
+        self.animation_help.grid(row=1, column=0, columnspan=3, pady=(5, 0), sticky="w")
+        self.update_animation_controls()
+
+    def animation_mode_changed(self) -> None:
+        try:
+            self.settings_store.save_animation_mode(self.animation_mode.get())
+        except OSError:
+            pass
+        self.update_animation_controls()
+
+    def selected_file_is_animated(self) -> bool:
+        selected = Path(self.seleccion.get())
+        if not selected.is_file():
+            return False
+        try:
+            with Image.open(selected) as image:
+                return bool(getattr(image, "is_animated", False) and image.n_frames > 1)
+        except OSError:
+            return False
+
+    def update_animation_controls(self) -> None:
+        selected = Path(self.seleccion.get())
+        relevant = selected.is_dir() or self.selected_file_is_animated()
+        if relevant:
+            self.animation_frame.grid()
+            mode = AnimationMode(self.animation_mode.get())
+            if mode is AnimationMode.PRESERVE:
+                output_format = FORMATOS_IMAGEN[self.formato.get()][0]
+                supported = animation_supported(output_format)
+                self.animation_help.configure(
+                    text=(
+                        "El formato elegido admite animación."
+                        if supported
+                        else "El formato elegido no admite animación; elige extraer o usar el primer fotograma."
+                    )
+                )
+            elif mode is AnimationMode.EXTRACT_FRAMES:
+                self.animation_help.configure(
+                    text="Se creará una carpeta nueva con todos los fotogramas numerados."
+                )
+            else:
+                self.animation_help.configure(
+                    text="Se convertirá explícitamente el fotograma 0 y se registrará el descarte."
+                )
+        else:
+            self.animation_frame.grid_remove()
 
     def resize_mode_changed(self, _event=None) -> None:
         self.resize_mode.set(
@@ -951,6 +1040,8 @@ class PanelImagen(PanelConversor):
             self.webp_help.set(self.WEBP_HELP[self.webp_mode.get()])
         else:
             self.marco_webp.grid_remove()
+        if hasattr(self, "animation_frame"):
+            self.update_animation_controls()
         calidad_aplicable = not (
             visible and self.webp_mode.get() == WebPMode.LOSSLESS.value
         )
@@ -963,6 +1054,15 @@ class PanelImagen(PanelConversor):
             validate_resize_config(self.current_resize_config())
         except ValueError as error:
             return str(error)
+        if (
+            self.selected_file_is_animated()
+            and AnimationMode(self.animation_mode.get()) is AnimationMode.PRESERVE
+            and not animation_supported(FORMATOS_IMAGEN[self.formato.get()][0])
+        ):
+            return (
+                "El formato elegido no puede conservar animación. "
+                "Selecciona Extraer fotogramas o Solo primer fotograma."
+            )
         return None
 
     def opciones_conversion(self) -> dict[str, object]:
@@ -973,6 +1073,7 @@ class PanelImagen(PanelConversor):
             "normalize_filenames": self.normalize_filenames.get(),
             "generate_report": self.generate_report.get(),
             "report_absolute_paths": self.report_path_mode.get() == "Absolutas",
+            "animation_mode": self.animation_mode.get(),
         }
 
     def bloquear(self, bloqueado: bool) -> None:
@@ -980,6 +1081,10 @@ class PanelImagen(PanelConversor):
         super().bloquear(bloqueado)
         self.selector_preset.configure(state="disabled" if bloqueado else "readonly")
         self.selector_resize.configure(state="disabled" if bloqueado else "readonly")
+        animation_state = "disabled" if bloqueado else "normal"
+        for child in self.animation_frame.winfo_children():
+            if isinstance(child, ttk.Radiobutton):
+                child.configure(state=animation_state)
         state = "disabled" if bloqueado else "normal"
         for widget in (
             self.entry_width,
@@ -1036,13 +1141,13 @@ class PanelImagen(PanelConversor):
         source: Path | str | None = None,
         requested_webp_mode: WebPMode | str = WebPMode.AUTOMATIC,
         resize_config: ResizeConfig | None = None,
+        animation_durations: tuple[int, ...] = (),
     ) -> WebPMode | None:
         source = source or salida
         resize_config = resize_config or ResizeConfig()
-        es_animada = getattr(imagen, "is_animated", False) and formato in {
-            "GIF",
-            "WEBP",
-        }
+        es_animada = getattr(imagen, "is_animated", False) and animation_supported(
+            formato
+        )
         if not es_animada:
             imagen.seek(0)
             resized, _target = self.resize_frame(imagen, resize_config)
@@ -1058,13 +1163,15 @@ class PanelImagen(PanelConversor):
         frames: list[Image.Image] = []
         durations: list[int] = []
         target: tuple[int, int] | None = None
-        for frame in ImageSequence.Iterator(imagen):
+        for frame_index, frame in enumerate(ImageSequence.Iterator(imagen)):
             resized, target = self.resize_frame(
                 frame.convert("RGBA"), resize_config, target
             )
             frames.append(resized.convert("RGBA"))
             durations.append(
-                frame.info.get("duration", imagen.info.get("duration", 100))
+                animation_durations[frame_index]
+                if frame_index < len(animation_durations)
+                else frame.info.get("duration", imagen.info.get("duration", 100))
             )
 
         save_options: dict[str, object] = {
@@ -1073,12 +1180,95 @@ class PanelImagen(PanelConversor):
             "duration": durations,
             "loop": imagen.info.get("loop", 0),
         }
+        if formato in {"GIF", "PNG"}:
+            save_options["disposal"] = [
+                getattr(frame, "disposal_method", frame.info.get("disposal", 0))
+                for frame in ImageSequence.Iterator(imagen)
+            ]
         if formato == "WEBP":
             save_options.update(webp_save_options(resolved_mode, calidad))
         else:
             save_options["optimize"] = True
         frames[0].save(salida, format=formato, **save_options)
         return resolved_mode
+
+    @staticmethod
+    def animation_warning(
+        code: ImageWarningCode,
+        severity: WarningSeverity,
+        message: str,
+        source: Path,
+        **details,
+    ) -> ImageWarning:
+        return ImageWarning(code, severity, message, source, details)
+
+    def extract_animation_frames(
+        self,
+        image: Image.Image,
+        source: Path,
+        desired_output: Path,
+        formato: str,
+        extension: str,
+        calidad: int,
+        requested_mode: WebPMode | str,
+        resize_config: ResizeConfig,
+        generate_report: bool,
+        animation_durations: tuple[int, ...],
+    ) -> tuple[Path, tuple[FrameResult, ...], tuple[str, ...], WebPMode | None]:
+        directory = frame_directory(
+            desired_output.with_name(f"{desired_output.stem}_frames")
+        )
+        directory.mkdir(parents=True, exist_ok=False)
+        created: list[Path] = []
+        frame_results: list[FrameResult] = []
+        checksum_warnings: list[str] = []
+        target_size: tuple[int, int] | None = None
+        resolved_mode = (
+            resolve_webp_mode(requested_mode, image, source)
+            if formato == "WEBP"
+            else None
+        )
+        width = frame_number_width(image.n_frames)
+        try:
+            for index, frame in enumerate(ImageSequence.Iterator(image), 1):
+                if self.cancel_event.is_set():
+                    raise InterruptedError("Extracción de fotogramas cancelada.")
+                duration = int(
+                    frame.info.get("duration", image.info.get("duration", 100))
+                )
+                resized, target_size = self.resize_frame(
+                    frame.convert("RGBA"), resize_config, target_size
+                )
+                output = directory / f"frame_{index:0{width}d}{extension}"
+                plan = plan_output(source, output, OutputPolicy.OVERWRITE)
+                try:
+                    self.guardar_imagen(
+                        resized,
+                        plan.temporary,
+                        formato,
+                        calidad,
+                        source,
+                        resolved_mode or requested_mode,
+                        ResizeConfig(),
+                    )
+                    commit_output(plan)
+                except Exception:
+                    cleanup_temporary(plan)
+                    raise
+                created.append(output)
+                checksum, warnings_found = self.checksum_for_report(
+                    output, generate_report
+                )
+                checksum_warnings.extend(warnings_found)
+                frame_results.append(
+                    FrameResult(output, duration, safe_file_size(output), checksum)
+                )
+        except Exception:
+            for output in created:
+                output.unlink(missing_ok=True)
+            directory.rmdir()
+            raise
+        return directory, tuple(frame_results), tuple(checksum_warnings), resolved_mode
 
     def convertir_lote(
         self,
@@ -1095,6 +1285,9 @@ class PanelImagen(PanelConversor):
         policy = OutputPolicy((opciones or {}).get("output_policy", OutputPolicy.SKIP))
         normalize = bool((opciones or {}).get("normalize_filenames", False))
         generate_report = bool((opciones or {}).get("generate_report", False))
+        animation_policy = AnimationMode(
+            (opciones or {}).get("animation_mode", AnimationMode.PRESERVE)
+        )
         destino = origen / f"convertidos_{elegido.lower()}"
         discovery_errors = list(errores_iniciales or [])
         results: list[FileResult] = []
@@ -1123,13 +1316,137 @@ class PanelImagen(PanelConversor):
             original_bytes = safe_file_size(archivo)
             plan = None
             collision = False
-            validation_warnings = ()
+            validation_warnings: tuple[ImageWarning | str, ...] = ()
             try:
                 desired = desired_output_path(
                     destino, origen, archivo, extension, normalize
                 )
                 desired.parent.mkdir(parents=True, exist_ok=True)
                 collision = path_key(desired) in name_collisions
+                validation_warnings = tuple(validate_image(archivo, formato))
+                blocking = [
+                    warning for warning in validation_warnings if warning.blocking
+                ]
+                if blocking:
+                    raise ImageValidationError(list(validation_warnings))
+
+                with Image.open(archivo) as probe:
+                    is_animated = bool(
+                        getattr(probe, "is_animated", False) and probe.n_frames > 1
+                    )
+                    frame_count = probe.n_frames if is_animated else None
+                    animation_loop = (
+                        int(probe.info.get("loop", 0)) if is_animated else None
+                    )
+                    frame_durations = (
+                        tuple(
+                            int(
+                                frame.info.get(
+                                    "duration", probe.info.get("duration", 100)
+                                )
+                            )
+                            for frame in ImageSequence.Iterator(probe)
+                        )
+                        if is_animated
+                        else ()
+                    )
+                    source_width, source_height = probe.size
+                    if is_animated and probe.format == "WEBP":
+                        parsed_durations = webp_frame_durations(archivo)
+                        if len(parsed_durations) == frame_count:
+                            frame_durations = parsed_durations
+
+                if is_animated and animation_policy is not AnimationMode.PRESERVE:
+                    validation_warnings = tuple(
+                        warning
+                        for warning in validation_warnings
+                        if not isinstance(warning, ImageWarning)
+                        or warning.code is not ImageWarningCode.ANIMATION_MAY_BE_LOST
+                    )
+
+                if is_animated and animation_policy is AnimationMode.EXTRACT_FRAMES:
+                    with Image.open(archivo) as animation:
+                        frame_root, frames, checksum_warnings, resolved_mode = (
+                            self.extract_animation_frames(
+                                animation,
+                                archivo,
+                                desired,
+                                formato,
+                                extension,
+                                calidad,
+                                requested_mode,
+                                resize_config,
+                                generate_report,
+                                frame_durations,
+                            )
+                        )
+                    output_bytes = sum(frame.output_bytes for frame in frames)
+                    output_width, output_height = calculate_resize_dimensions(
+                        source_width, source_height, resize_config
+                    )
+                    extraction_warning = self.animation_warning(
+                        ImageWarningCode.FRAMES_EXTRACTED,
+                        WarningSeverity.INFORMATION,
+                        f"Se extrajeron {len(frames)} fotogramas.",
+                        archivo,
+                        frameCount=len(frames),
+                        durationsMs=[frame.duration_ms for frame in frames],
+                    )
+                    size_warnings = tuple(
+                        output_size_warnings(archivo, original_bytes, output_bytes)
+                    )
+                    results.append(
+                        FileResult(
+                            archivo,
+                            frame_root,
+                            ResultStatus.CONVERTED,
+                            original_bytes,
+                            output_bytes,
+                            processing_seconds=time.monotonic() - started,
+                            encoder_mode=(
+                                resolved_mode.value if resolved_mode else None
+                            ),
+                            output_action=(
+                                OutputAction.RENAME.value
+                                if frame_root.name != f"{desired.stem}_frames"
+                                else OutputAction.CONVERT.value
+                            ),
+                            name_collision=collision,
+                            warnings=validation_warnings
+                            + (extraction_warning,)
+                            + size_warnings
+                            + checksum_warnings,
+                            width=source_width,
+                            height=source_height,
+                            output_width=output_width,
+                            output_height=output_height,
+                            quality=(
+                                None if resolved_mode is WebPMode.LOSSLESS else calidad
+                            ),
+                            animation_mode=animation_policy.value,
+                            frame_count=frame_count,
+                            animation_loop=animation_loop,
+                            frame_durations_ms=frame_durations,
+                            frames=frames,
+                        )
+                    )
+                    self.notificar_avance(indice, len(archivos), archivo.name)
+                    continue
+
+                if (
+                    is_animated
+                    and animation_policy is AnimationMode.PRESERVE
+                    and not animation_supported(formato)
+                ):
+                    unsupported = self.animation_warning(
+                        ImageWarningCode.ANIMATED_DESTINATION_UNSUPPORTED,
+                        WarningSeverity.BLOCKING_ERROR,
+                        "El formato elegido no puede conservar la animación; selecciona un fallback explícito.",
+                        archivo,
+                        targetFormat=formato,
+                    )
+                    raise ImageValidationError([*validation_warnings, unsupported])
+
                 plan = plan_output(archivo, desired, policy)
                 if not plan.should_convert:
                     results.append(
@@ -1146,30 +1463,41 @@ class PanelImagen(PanelConversor):
                             processing_seconds=time.monotonic() - started,
                             output_action=plan.action.value,
                             name_collision=collision,
+                            warnings=validation_warnings,
                         )
                     )
                     self.notificar_avance(indice, len(archivos), archivo.name)
                     continue
-                validation_warnings = tuple(validate_image(archivo, formato))
-                blocking = [
-                    warning for warning in validation_warnings if warning.blocking
-                ]
-                if blocking:
-                    raise ImageValidationError(list(validation_warnings))
+
+                if is_animated and animation_policy is AnimationMode.FIRST_FRAME:
+                    discarded = self.animation_warning(
+                        ImageWarningCode.ANIMATION_INTENTIONALLY_DISCARDED,
+                        WarningSeverity.WARNING,
+                        "Se convirtió explícitamente solo el primer fotograma.",
+                        archivo,
+                        discardedFrames=(frame_count or 1) - 1,
+                    )
+                    validation_warnings += (discarded,)
+
                 with Image.open(archivo) as image:
                     oriented = ImageOps.exif_transpose(image)
                     source_width, source_height = oriented.size
                     output_width, output_height = calculate_resize_dimensions(
                         source_width, source_height, resize_config
                     )
+                    image_to_save = image
+                    if is_animated and animation_policy is AnimationMode.FIRST_FRAME:
+                        image.seek(0)
+                        image_to_save = image.convert("RGBA")
                     resolved_mode = self.guardar_imagen(
-                        image,
+                        image_to_save,
                         plan.temporary,
                         formato,
                         calidad,
                         archivo,
                         requested_mode,
                         resize_config,
+                        frame_durations,
                     )
                 commit_output(plan)
                 output_bytes = safe_file_size(plan.target)
@@ -1206,12 +1534,28 @@ class PanelImagen(PanelConversor):
                         output_height=output_height,
                         quality=reported_quality,
                         sha256=checksum,
+                        animation_mode=(
+                            animation_policy.value if is_animated else None
+                        ),
+                        frame_count=frame_count,
+                        animation_loop=animation_loop,
+                        frame_durations_ms=frame_durations,
                     )
                 )
             except Exception as error:
                 cleanup_temporary(plan)
                 if isinstance(error, ImageValidationError):
                     validation_warnings = error.warnings
+                if isinstance(error, InterruptedError) and self.cancel_event.is_set():
+                    self.raiz.after(
+                        0,
+                        self.finalizar_resultados,
+                        destino,
+                        results,
+                        discovery_errors,
+                        True,
+                    )
+                    return
                 results.append(
                     FileResult(
                         archivo,
@@ -1519,8 +1863,8 @@ class PanelVideo(PanelAudio):
 class ConversorApp:
     def __init__(self, raiz: Tk) -> None:
         raiz.title("Conversor multimedia")
-        raiz.geometry("900x740")
-        raiz.minsize(760, 680)
+        raiz.geometry("900x780")
+        raiz.minsize(760, 740)
         pestañas = ttk.Notebook(raiz)
         pestañas.pack(fill="both", expand=True)
         pestañas.add(PanelImagen(pestañas, raiz), text=" Imágenes ")

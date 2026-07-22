@@ -18,7 +18,7 @@ from conversion_report import (
     sha256_file,
     write_report_atomic,
 )
-from conversion_results import BatchSummary, FileResult, ResultStatus
+from conversion_results import BatchSummary, FileResult, FrameResult, ResultStatus
 from png_a_webp import PanelConversor
 from image_validation import ImageWarning, ImageWarningCode, WarningSeverity
 
@@ -145,6 +145,40 @@ class ConversionReportTests(unittest.TestCase):
         self.assertEqual(serialized["severity"], "warning")
         self.assertEqual(serialized["details"]["targetFormat"], "JPEG")
         self.assertEqual(serialized["source"], "alpha.png")
+
+    def test_extracted_frames_include_durations_in_json(self) -> None:
+        frame = FrameResult(
+            self.output_root / "asset_frames" / "frame_0001.png",
+            70,
+            4,
+            "abc",
+        )
+        result = FileResult(
+            self.root / "asset.gif",
+            self.output_root / "asset_frames",
+            ResultStatus.CONVERTED,
+            10,
+            4,
+            animation_mode="extract_frames",
+            frame_count=1,
+            animation_loop=3,
+            frame_durations_ms=(70,),
+            frames=(frame,),
+        )
+        report = build_report(
+            BatchSummary(1, (result,), 1),
+            self.root,
+            self.output_root,
+            "image",
+            "png",
+            {},
+            self.now,
+            self.now,
+        )
+        entry = report["files"][0]
+        self.assertEqual(entry["animationLoop"], 3)
+        self.assertEqual(entry["frames"][0]["durationMs"], 70)
+        self.assertEqual(entry["frames"][0]["output"], "asset_frames/frame_0001.png")
 
     def test_mixed_batch_keeps_order_and_valid_errors(self) -> None:
         results = (

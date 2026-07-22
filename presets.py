@@ -179,6 +179,22 @@ class SettingsStore:
     def save_report_absolute_paths(self, enabled: bool) -> None:
         self._update("report_absolute_paths", bool(enabled))
 
+    def load_animation_mode(self) -> str:
+        value = self._read().get("animation_mode")
+        return (
+            value
+            if value in {"preserve", "extract_frames", "first_frame"}
+            else "preserve"
+        )
+
+    def save_animation_mode(self, mode: str) -> None:
+        value = (
+            mode
+            if mode in {"preserve", "extract_frames", "first_frame"}
+            else "preserve"
+        )
+        self._update("animation_mode", value)
+
 
 def public_preset_data() -> list[dict[str, object]]:
     """Expose serializable data for validation and future media categories."""

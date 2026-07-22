@@ -45,6 +45,19 @@ La comparación temporal depende de la precisión del sistema de archivos y cons
 El algoritmo toma el nombre sin extensión, aplica Unicode NFKD, elimina marcas diacríticas cuando es posible, convierte a minúsculas ASCII y transforma separadores o puntuación en guiones bajos. Después colapsa separadores repetidos, retira los situados en los extremos y conserva solo `a-z`, `0-9` y `_`. Los nombres que empiezan por un número o están reservados en Windows (`CON`, `PRN`, `AUX`, `NUL`, `COM1`…`COM9`, `LPT1`…`LPT9`) reciben el prefijo `asset_`; un resultado vacío se convierte en `asset`. El nombre base se limita a **100 caracteres** y siempre conserva la extensión de salida elegida.
 
 Antes de procesar se detectan, sin distinguir mayúsculas, las rutas que convergen en el mismo nombre normalizado. Las carpetas relativas se mantienen, por lo que nombres iguales en subcarpetas diferentes no colisionan. Dentro de una misma carpeta, los elementos se procesan de forma determinista y se aplica la política de archivos existentes: omitir, sobrescribir explícitamente, crear sufijos `_2`, `_3`… o comparar fechas. Toda colisión se contabiliza y detalla en el resumen, incluso si la política seleccionada permite completar la conversión.
+
+## GIF y otras imágenes animadas
+
+Cuando se selecciona un archivo animado —o una carpeta que puede contenerlos— aparece **Tratamiento de animaciones**. La opción es global para el lote, se recuerda localmente y no se muestra para un archivo estático:
+
+- **Conservar animación (predeterminada):** mantiene orden, número de fotogramas, duraciones, bucle, transparencia y, para GIF/APNG, la disposición (`disposal`) en la medida que Pillow lo permite. El redimensionado usa el mismo tamaño objetivo en todos los fotogramas. Antes de aceptar un formato, la aplicación escribe y reabre una animación mínima en memoria para comprobar capacidad, fotogramas, bucle y —salvo la limitación WebP descrita abajo— duraciones. En la compilación habitual son compatibles GIF, WebP y APNG, pero el resultado real depende de Pillow y sus códecs.
+- **Extraer fotogramas:** crea una carpeta nueva `nombre_frames`, o `nombre_frames_2` si ya existe, sin reutilizar ni sobrescribir carpetas ajenas. Genera `frame_0001`, `frame_0002`… en el formato estático elegido, aplica calidad, modo WebP y redimensionado, y registra duración, tamaño y SHA-256 por fotograma en el informe JSON. La estructura relativa del lote se conserva.
+- **Solo primer fotograma:** convierte explícitamente el fotograma 0 y registra `ANIMATION_INTENTIONALLY_DISCARDED`; nunca presenta esa salida como animación conservada.
+
+Si **Conservar animación** se combina con un destino no compatible, el archivo afectado falla con `ANIMATED_DESTINATION_UNSUPPORTED`; no se elige un fallback silencioso. En un archivo individual la interfaz avisa antes de iniciar. En lote se agregan resultados conservados, extraídos y reducidos al primer fotograma sin abrir un diálogo por elemento.
+
+Pillow compone los cambios parciales de fotogramas durante la iteración; la fidelidad de paletas, cuantización, transparencia y disposal queda limitada por cada códec. Pillow escribe las duraciones WebP, pero actualmente no las expone de nuevo al leer; la aplicación recupera los valores estándar de los bloques `ANMF`, mientras que la sonda WebP verifica escritura, número de fotogramas y bucle. La cancelación durante extracción elimina únicamente la carpeta parcial creada por esa operación.
+
 ## Validación y avisos de imagen
 
 Antes de codificar cada imagen se ejecuta una validación no destructiva. Los avisos de nivel `information` y `warning` permiten continuar; `blocking_error` impide únicamente ese archivo y el resto del lote sigue. No se abre un diálogo por aviso: el resumen final agrega el total y ofrece el detalle con código, severidad y mensaje. Si se habilita el informe JSON, cada aviso incluye además sus detalles estructurados.
@@ -64,6 +77,9 @@ La presencia de un canal alfa no implica transparencia: se inspecciona su valor 
 | `ICC_PROFILE_INVALID` | warning | El perfil ICC no se pudo interpretar. |
 | `ICC_PROFILE_DROPPED` | information | El perfil ICC no se copia a la salida. |
 | `ANIMATION_MAY_BE_LOST` | warning | Una animación se dirige a un formato tratado como estático. |
+| `ANIMATION_INTENTIONALLY_DISCARDED` | warning | La política elegida conserva únicamente el fotograma 0. |
+| `ANIMATED_DESTINATION_UNSUPPORTED` | blocking_error | El destino no supera la sonda de conservación y exige otro modo. |
+| `FRAMES_EXTRACTED` | information | Los fotogramas se guardaron por separado con sus duraciones. |
 | `OUTPUT_SIZE_REDUCTION_EXTREME` | warning | La salida es más de un 90 % menor; se recomienda revisión visual sin afirmar pérdida. |
 | `OUTPUT_SIZE_INCREASED` | information | La salida ocupa más que la fuente. |
 | `METADATA_DROPPED` | information | EXIF, comentarios o XMP detectados no se copian. |
@@ -73,6 +89,7 @@ La presencia de un canal alfa no implica transparencia: se inspecciona su valor 
 | `DECOMPRESSION_BOMB_ERROR` | blocking_error | Pillow bloqueó la imagen por riesgo de bomba de descompresión. |
 
 La validación no realiza comparación visual automática, puntuación perceptual ni afirma degradación sin evidencia objetiva. Los archivos fuente nunca se modifican.
+
 ## Informe JSON y SHA-256
 
 La opción **Generar informe JSON con SHA-256** está desactivada de forma predeterminada. Cuando se activa, el cálculo se realiza por bloques de 1 MiB en el hilo de trabajo, admite cancelación y nunca carga un archivo multimedia completo en memoria. El hash representa los bytes finales ya publicados; se comparan tamaño y fecha antes y después del cálculo y se añade un aviso si el archivo cambia durante ese intervalo.
@@ -118,6 +135,7 @@ Ejemplo abreviado:
 ```
 
 Campos principales: las fechas usan ISO-8601 UTC; `elapsedMilliseconds` mide la operación; `settings` contiene solo opciones públicas; `summary` agrega estados y tamaños. Cada elemento de `files` incluye ruta segura, estado, bytes, avisos y error, además de dimensiones, calidad, modo y SHA-256 cuando sean aplicables. Los omitidos y fallidos no se hashean.
+
 ## Modos WebP
 
 - **Automático (predeterminado):** JPEG se codifica con pérdida; las animaciones, imágenes de paleta y muestras con 256 colores o menos se codifican sin pérdida; el resto se codifica con pérdida. Se consideran grandes las imágenes desde 1.000.000 de píxeles o 1.600 píxeles en cualquiera de sus dimensiones.
@@ -125,6 +143,7 @@ Campos principales: las fechas usan ISO-8601 UTC; `elapsedMilliseconds` mide la 
 - **Sin pérdida:** conserva exactamente los valores de los píxeles y desactiva el control de calidad. Puede producir archivos mayores.
 
 La decisión automática se realiza independientemente para cada archivo del lote y el modo elegido se muestra durante la conversión. Las exportaciones mantienen la política existente de la aplicación: no copian perfiles ICC ni metadatos EXIF. El modo con pérdida suele ser apropiado para fotografías e ilustraciones complejas; el modo sin pérdida, para iconos, gráficos planos y recursos que exigen fidelidad exacta.
+
 ## Presets de imagen
 
 Los presets aplican formato, modo WebP y calidad de una sola vez. Después se puede modificar cualquier ajuste; la selección cambia a **Personalizado** para no presentar una configuración modificada como si siguiera intacta. El último preset se guarda localmente en las preferencias del usuario.
@@ -139,6 +158,7 @@ Los presets aplican formato, modo WebP y calidad de una sola vez. Después se pu
 | Archivo sin pérdida | PNG | Sin pérdida | No aplica | Conservación y archivo |
 
 Todos los presets mantienen las dimensiones originales. El modelo reserva opciones de redimensionado y de audio/vídeo para ampliaciones posteriores, pero no aplica silenciosamente funciones todavía no disponibles.
+
 ## Redimensionado de imágenes
 
 El redimensionado se realiza después de corregir la orientación EXIF y antes de codificar el formato final. Utiliza LANCZOS, conserva la transparencia y nunca recorta ni deforma.
@@ -150,6 +170,7 @@ El redimensionado se realiza después de corregir la orientación EXIF y antes d
 - **Escalar por porcentaje:** aplica un porcentaje proporcional. Con **Nunca ampliar imágenes pequeñas** activo, el máximo efectivo es 100%; al desactivarlo se permite una ampliación explícita y limitada.
 
 Para un archivo individual se muestra una estimación basada en sus dimensiones después de orientar. En lotes, cada archivo se calcula individualmente. Las animaciones GIF/WebP redimensionan todos los fotogramas al mismo tamaño objetivo. No se aplican recorte, deformación ni ampliación mediante IA.
+
 ## Resumen y comparación de tamaño
 
 Al finalizar se abre un resumen seleccionable con archivos descubiertos y procesados, conversiones correctas, omisiones, fallos, tamaños originales y finales, ahorro o aumento, porcentaje y tiempo transcurrido. **Copiar resumen** envía el contenido al portapapeles y los detalles de fallos se limitan inicialmente para mantener ágil la ventana en lotes grandes.

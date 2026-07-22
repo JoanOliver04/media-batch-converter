@@ -11,6 +11,8 @@ from typing import Any
 
 from PIL import Image, ImageCms, UnidentifiedImageError
 
+from animation_handling import animation_supported
+
 
 EXTREME_DIMENSION = 16_000
 MEMORY_PRESSURE_PIXELS = 80_000_000
@@ -34,6 +36,9 @@ class ImageWarningCode(StrEnum):
     ICC_PROFILE_INVALID = "ICC_PROFILE_INVALID"
     ICC_PROFILE_DROPPED = "ICC_PROFILE_DROPPED"
     ANIMATION_MAY_BE_LOST = "ANIMATION_MAY_BE_LOST"
+    ANIMATION_INTENTIONALLY_DISCARDED = "ANIMATION_INTENTIONALLY_DISCARDED"
+    ANIMATED_DESTINATION_UNSUPPORTED = "ANIMATED_DESTINATION_UNSUPPORTED"
+    FRAMES_EXTRACTED = "FRAMES_EXTRACTED"
     OUTPUT_SIZE_REDUCTION_EXTREME = "OUTPUT_SIZE_REDUCTION_EXTREME"
     OUTPUT_SIZE_INCREASED = "OUTPUT_SIZE_INCREASED"
     METADATA_DROPPED = "METADATA_DROPPED"
@@ -202,7 +207,7 @@ def validate_properties(
                     targetFormat=target_format,
                 )
             )
-    if animated and target_format.upper() not in {"GIF", "WEBP"}:
+    if animated and not animation_supported(target_format):
         found.append(
             _warning(
                 ImageWarningCode.ANIMATION_MAY_BE_LOST,

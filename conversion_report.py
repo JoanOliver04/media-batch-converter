@@ -138,6 +138,21 @@ def file_entry(
         "sha256": result.sha256,
     }
     entry.update({key: value for key, value in optional.items() if value is not None})
+    if result.animation_mode is not None:
+        entry["animationMode"] = result.animation_mode
+        entry["frameCount"] = result.frame_count
+        entry["animationLoop"] = result.animation_loop
+        entry["frameDurationsMs"] = list(result.frame_durations_ms)
+    if result.frames:
+        entry["frames"] = [
+            {
+                "output": _safe_path(frame.output_path, output_root, absolute_paths),
+                "durationMs": frame.duration_ms,
+                "outputBytes": frame.output_bytes,
+                "sha256": frame.sha256,
+            }
+            for frame in result.frames
+        ]
     return entry
 
 
