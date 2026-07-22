@@ -88,6 +88,10 @@ class SettingsTests(unittest.TestCase):
             store.save_normalize_filenames(True)
             self.assertTrue(store.load_normalize_filenames())
             self.assertEqual(store.load_output_policy(), "overwrite")
+            store.save_generate_report(True)
+            store.save_report_absolute_paths(True)
+            self.assertTrue(store.load_generate_report())
+            self.assertTrue(store.load_report_absolute_paths())
 
             store.save_output_policy("invalid")
             self.assertEqual(store.load_output_policy(), "skip")
@@ -140,6 +144,13 @@ class PresetUiTests(unittest.TestCase):
         self.assertEqual(
             panel.output_name_preview.get(), "Nombre de salida: voice_final.mp3"
         )
+
+    def test_report_defaults_are_private_and_optional(self) -> None:
+        self.assertFalse(self.panel.generate_report.get())
+        self.assertEqual(self.panel.report_path_mode.get(), "Relativas")
+        options = self.panel.opciones_conversion()
+        self.assertFalse(options["generate_report"])
+        self.assertFalse(options["report_absolute_paths"])
 
     def test_apply_modify_and_reapply_preset(self) -> None:
         self.panel.aplicar_preset_id("general_mobile_asset")

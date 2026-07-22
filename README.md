@@ -45,6 +45,51 @@ La comparación temporal depende de la precisión del sistema de archivos y cons
 El algoritmo toma el nombre sin extensión, aplica Unicode NFKD, elimina marcas diacríticas cuando es posible, convierte a minúsculas ASCII y transforma separadores o puntuación en guiones bajos. Después colapsa separadores repetidos, retira los situados en los extremos y conserva solo `a-z`, `0-9` y `_`. Los nombres que empiezan por un número o están reservados en Windows (`CON`, `PRN`, `AUX`, `NUL`, `COM1`…`COM9`, `LPT1`…`LPT9`) reciben el prefijo `asset_`; un resultado vacío se convierte en `asset`. El nombre base se limita a **100 caracteres** y siempre conserva la extensión de salida elegida.
 
 Antes de procesar se detectan, sin distinguir mayúsculas, las rutas que convergen en el mismo nombre normalizado. Las carpetas relativas se mantienen, por lo que nombres iguales en subcarpetas diferentes no colisionan. Dentro de una misma carpeta, los elementos se procesan de forma determinista y se aplica la política de archivos existentes: omitir, sobrescribir explícitamente, crear sufijos `_2`, `_3`… o comparar fechas. Toda colisión se contabiliza y detalla en el resumen, incluso si la política seleccionada permite completar la conversión.
+## Informe JSON y SHA-256
+
+La opción **Generar informe JSON con SHA-256** está desactivada de forma predeterminada. Cuando se activa, el cálculo se realiza por bloques de 1 MiB en el hilo de trabajo, admite cancelación y nunca carga un archivo multimedia completo en memoria. El hash representa los bytes finales ya publicados; se comparan tamaño y fecha antes y después del cálculo y se añade un aviso si el archivo cambia durante ese intervalo.
+
+El informe se guarda como `conversion_report.json` en la raíz de salida. Si ya existe, se usa un nombre UTC determinista como `conversion_report_2026-07-22_154530.json` y, si también colisiona, sufijos `_2`, `_3`… La escritura usa UTF-8, un temporal completamente sincronizado y publicación atómica sin sobrescritura. Un fallo del informe se muestra como aviso y no invalida las conversiones completadas.
+
+Las rutas son **relativas de forma predeterminada**: las fuentes se expresan respecto a la raíz de origen y las salidas respecto a la raíz de resultados. Si una ruta no puede relativizarse, solo se conserva su nombre. Las rutas absolutas deben habilitarse explícitamente; el informe no recopila variables de entorno, credenciales ni metadatos ajenos.
+
+El esquema comienza en `schemaVersion: 1`, independiente de `applicationVersion`. Un cambio incompatible incrementará `schemaVersion`; los campos compatibles pueden ampliarse conservando la versión. `files` mantiene el orden determinista de procesamiento. Los campos de dimensiones se incluyen en imágenes y los no aplicables a audio o vídeo se omiten.
+
+Ejemplo abreviado:
+
+```json
+{
+  "schemaVersion": 1,
+  "applicationVersion": "1.0.0",
+  "startedAt": "2026-07-22T15:45:20+00:00",
+  "completedAt": "2026-07-22T15:45:30+00:00",
+  "elapsedMilliseconds": 10000,
+  "mediaType": "image",
+  "outputFormat": "webp",
+  "settings": {"quality": 90, "report_absolute_paths": false},
+  "summary": {"discovered": 1, "processed": 1, "converted": 1},
+  "files": [
+    {
+      "source": "characters/hero.png",
+      "output": "characters/hero.webp",
+      "status": "converted",
+      "originalBytes": 5241880,
+      "outputBytes": 643201,
+      "width": 2048,
+      "height": 3072,
+      "outputWidth": 1024,
+      "outputHeight": 1536,
+      "quality": 90,
+      "encodingMode": "lossy",
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "warnings": [],
+      "error": null
+    }
+  ]
+}
+```
+
+Campos principales: las fechas usan ISO-8601 UTC; `elapsedMilliseconds` mide la operación; `settings` contiene solo opciones públicas; `summary` agrega estados y tamaños. Cada elemento de `files` incluye ruta segura, estado, bytes, avisos y error, además de dimensiones, calidad, modo y SHA-256 cuando sean aplicables. Los omitidos y fallidos no se hashean.
 ## Modos WebP
 
 - **Automático (predeterminado):** JPEG se codifica con pérdida; las animaciones, imágenes de paleta y muestras con 256 colores o menos se codifican sin pérdida; el resto se codifica con pérdida. Se consideran grandes las imágenes desde 1.000.000 de píxeles o 1.600 píxeles en cualquiera de sus dimensiones.

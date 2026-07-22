@@ -180,6 +180,7 @@ class ImageBatchTests(unittest.TestCase):
                 opciones={
                     "normalize_filenames": True,
                     "output_policy": "unique",
+                    "generate_report": True,
                 },
             )
 
@@ -192,6 +193,19 @@ class ImageBatchTests(unittest.TestCase):
             self.assertEqual(
                 [result.output_action for result in completion["results"]],
                 ["converted", "renamed"],
+            )
+            self.assertTrue(all(result.sha256 for result in completion["results"]))
+            self.assertTrue(
+                all(
+                    (
+                        result.width,
+                        result.height,
+                        result.output_width,
+                        result.output_height,
+                    )
+                    == (4, 4, 4, 4)
+                    for result in completion["results"]
+                )
             )
 
 

@@ -25,6 +25,13 @@ class FileResult:
     encoder_mode: str | None = None
     output_action: str | None = None
     name_collision: bool = False
+    warnings: tuple[str, ...] = field(default_factory=tuple)
+    width: int | None = None
+    height: int | None = None
+    output_width: int | None = None
+    output_height: int | None = None
+    quality: int | None = None
+    sha256: str | None = None
 
     @property
     def bytes_saved(self) -> int:
@@ -44,6 +51,7 @@ class BatchSummary:
     elapsed_seconds: float
     cancelled: bool = False
     discovery_errors: tuple[str, ...] = field(default_factory=tuple)
+    operation_warnings: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def files_processed(self) -> int:
@@ -186,5 +194,6 @@ def summary_text(summary: BatchSummary) -> str:
             size_line,
             percent_line,
             f"Tiempo transcurrido: {format_duration(summary.elapsed_seconds)}",
+            f"Avisos de operación: {len(summary.operation_warnings)}",
         )
     )

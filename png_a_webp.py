@@ -8,11 +8,20 @@ import subprocess
 import sys
 import threading
 import time
+from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from tkinter import BooleanVar, IntVar, StringVar, Tk, filedialog, messagebox
 from tkinter import ttk
 
 from batch_processing import discover_files, safe_output_directory
+from conversion_report import (
+    HashCancelled,
+    build_report,
+    report_path,
+    sha256_file,
+    write_report_atomic,
+)
 from conversion_results import BatchSummary, FileResult, ResultStatus, safe_file_size
 from filename_normalization import collision_keys, output_filename, path_key
 from output_policy import (
@@ -133,6 +142,8 @@ def batch_name_collision_keys(
 class PanelConversor(ttk.Frame):
     """Controles compartidos por los tres tipos de conversión."""
 
+    MEDIA_TYPE = "media"
+
     def __init__(
         self,
         parent,
@@ -164,6 +175,16 @@ class PanelConversor(ttk.Frame):
         )
         self.output_name_preview = StringVar(
             value="Ejemplo: Character Happy.png → character_happy.webp"
+        )
+        self.generate_report = BooleanVar(
+            value=self.settings_store.load_generate_report()
+        )
+        self.report_path_mode = StringVar(
+            value=(
+                "Absolutas"
+                if self.settings_store.load_report_absolute_paths()
+                else "Relativas"
+            )
         )
         self.output_policy_help = StringVar()
         self._policy_by_display = {
@@ -269,6 +290,27 @@ class PanelConversor(ttk.Frame):
         self.formato.trace_add(
             "write", lambda *_args: self.update_output_name_preview()
         )
+        self.report_check = ttk.Checkbutton(
+            opciones,
+            text="Generar informe JSON con SHA-256",
+            variable=self.generate_report,
+            command=self.report_settings_changed,
+        )
+        self.report_check.grid(row=4, column=0, columnspan=2, pady=(10, 0), sticky="w")
+        ttk.Label(opciones, text="Rutas del informe:").grid(
+            row=4, column=2, pady=(10, 0), sticky="e"
+        )
+        self.report_path_selector = ttk.Combobox(
+            opciones,
+            textvariable=self.report_path_mode,
+            values=("Relativas", "Absolutas"),
+            state="readonly",
+            width=12,
+        )
+        self.report_path_selector.grid(row=4, column=3, pady=(10, 0), sticky="w")
+        self.report_path_selector.bind(
+            "<<ComboboxSelected>>", self.report_settings_changed
+        )
 
         self.progreso = ttk.Progressbar(self, mode="determinate")
         self.progreso.grid(row=4, column=0, sticky="ew", pady=(0, 10))
@@ -318,6 +360,15 @@ class PanelConversor(ttk.Frame):
                 "Ejemplo: Character Happy.png → character_happy.webp"
             )
 
+    def report_settings_changed(self, _event=None) -> None:
+        try:
+            self.settings_store.save_generate_report(self.generate_report.get())
+            self.settings_store.save_report_absolute_paths(
+                self.report_path_mode.get() == "Absolutas"
+            )
+        except OSError:
+            pass
+
     def archivos_en(self, carpeta: Path) -> list[Path]:
         return discover_files(carpeta, self.extensiones, self.recursivo.get()).files
 
@@ -360,11 +411,24 @@ class PanelConversor(ttk.Frame):
 
         self.cancel_event.clear()
         self.batch_started = time.monotonic()
+        self.batch_started_at = datetime.now(timezone.utc)
         logging.getLogger(__name__).info("batch_start media=%s", type(self).__name__)
         self.bloquear(True)
         self.progreso.configure(mode="indeterminate", value=0)
         self.progreso.start(12)
         self.estado.set("Descubriendo archivos compatibles…")
+        conversion_options = self.opciones_conversion()
+        self.report_enabled = bool(conversion_options.get("generate_report", False))
+        self.report_absolute = bool(
+            conversion_options.get("report_absolute_paths", False)
+        )
+        self.report_source_root = origen
+        self.report_output_format = self.formato.get()
+        self.report_settings = {
+            **conversion_options,
+            "quality": self.calidad.get(),
+            "recursive": self.recursivo.get(),
+        }
         threading.Thread(
             target=self.preparar_lote,
             args=(
@@ -373,7 +437,7 @@ class PanelConversor(ttk.Frame):
                 self.formato.get(),
                 self.calidad.get(),
                 self.recursivo.get(),
-                self.opciones_conversion(),
+                conversion_options,
             ),
             daemon=True,
         ).start()
@@ -414,6 +478,8 @@ class PanelConversor(ttk.Frame):
         return {
             "output_policy": self.output_policy.get(),
             "normalize_filenames": self.normalize_filenames.get(),
+            "generate_report": self.generate_report.get(),
+            "report_absolute_paths": self.report_path_mode.get() == "Absolutas",
         }
 
     def preparar_progreso_conversion(self, total: int) -> None:
@@ -471,6 +537,23 @@ class PanelConversor(ttk.Frame):
         self.boton_cancelar.configure(state="normal" if bloqueado else "disabled")
         self.selector_policy.configure(state="disabled" if bloqueado else "readonly")
         self.normalize_check.configure(state=estado)
+        self.report_check.configure(state=estado)
+        self.report_path_selector.configure(
+            state="disabled" if bloqueado else "readonly"
+        )
+
+    def checksum_for_report(
+        self, output: Path, enabled: bool
+    ) -> tuple[str | None, tuple[str, ...]]:
+        if not enabled:
+            return None, ()
+        try:
+            checksum, warning = sha256_file(output, self.cancel_event)
+        except HashCancelled:
+            return None, ("SHA-256 cancelado; el archivo convertido se conserva.",)
+        except OSError as error:
+            return None, (f"No se pudo calcular SHA-256: {error}",)
+        return checksum, (warning,) if warning else ()
 
     def finalizar_resultados(
         self,
@@ -486,6 +569,42 @@ class PanelConversor(ttk.Frame):
             cancelled=cancelled,
             discovery_errors=tuple(errores_descubrimiento),
         )
+        if getattr(self, "report_enabled", False):
+            self.estado.set("Generando informe JSON…")
+            threading.Thread(
+                target=self.generar_informe,
+                args=(destino, summary),
+                daemon=True,
+            ).start()
+            return
+        self.mostrar_resultados(destino, summary, None)
+
+    def generar_informe(self, destino: Path, summary: BatchSummary) -> None:
+        completed_at = datetime.now(timezone.utc)
+        generated_path = None
+        try:
+            report = build_report(
+                summary,
+                self.report_source_root,
+                destino,
+                self.MEDIA_TYPE,
+                self.report_output_format,
+                self.report_settings,
+                self.batch_started_at,
+                completed_at,
+                self.report_absolute,
+            )
+            generated_path = report_path(destino, completed_at)
+            write_report_atomic(generated_path, report)
+        except Exception as error:
+            generated_path = None
+            warning = f"No se pudo escribir el informe JSON: {error}"
+            summary = replace(summary, operation_warnings=(warning,))
+        self.raiz.after(0, self.mostrar_resultados, destino, summary, generated_path)
+
+    def mostrar_resultados(
+        self, destino: Path, summary: BatchSummary, generated_report: Path | None
+    ) -> None:
         self.last_summary = summary
         self.bloquear(False)
         self.estado.set(
@@ -502,7 +621,11 @@ class PanelConversor(ttk.Frame):
             summary.elapsed_seconds,
             summary.cancelled,
         )
-        show_summary(self.raiz, summary, destino)
+        if summary.operation_warnings:
+            messagebox.showwarning(
+                "Informe no generado", "\n".join(summary.operation_warnings)
+            )
+        show_summary(self.raiz, summary, destino, generated_report)
 
     def completar(self, destino: Path, exitos: int, errores: list[str]) -> None:
         self.bloquear(False)
@@ -530,6 +653,7 @@ class PanelConversor(ttk.Frame):
 
 
 class PanelImagen(PanelConversor):
+    MEDIA_TYPE = "image"
     WEBP_HELP = {
         WebPMode.AUTOMATIC.value: "Automático elige por imagen entre tamaño reducido y fidelidad exacta.",
         WebPMode.LOSSY.value: "Con pérdida reduce más el tamaño y conserva la transparencia.",
@@ -842,6 +966,8 @@ class PanelImagen(PanelConversor):
             "resize_config": self.current_resize_config(),
             "output_policy": self.output_policy.get(),
             "normalize_filenames": self.normalize_filenames.get(),
+            "generate_report": self.generate_report.get(),
+            "report_absolute_paths": self.report_path_mode.get() == "Absolutas",
         }
 
     def bloquear(self, bloqueado: bool) -> None:
@@ -963,6 +1089,7 @@ class PanelImagen(PanelConversor):
         resize_config = (opciones or {}).get("resize_config", ResizeConfig())
         policy = OutputPolicy((opciones or {}).get("output_policy", OutputPolicy.SKIP))
         normalize = bool((opciones or {}).get("normalize_filenames", False))
+        generate_report = bool((opciones or {}).get("generate_report", False))
         destino = origen / f"convertidos_{elegido.lower()}"
         discovery_errors = list(errores_iniciales or [])
         results: list[FileResult] = []
@@ -1018,6 +1145,11 @@ class PanelImagen(PanelConversor):
                     self.notificar_avance(indice, len(archivos), archivo.name)
                     continue
                 with Image.open(archivo) as image:
+                    oriented = ImageOps.exif_transpose(image)
+                    source_width, source_height = oriented.size
+                    output_width, output_height = calculate_resize_dimensions(
+                        source_width, source_height, resize_config
+                    )
                     resolved_mode = self.guardar_imagen(
                         image,
                         plan.temporary,
@@ -1028,8 +1160,16 @@ class PanelImagen(PanelConversor):
                         resize_config,
                     )
                 commit_output(plan)
+                checksum, checksum_warnings = self.checksum_for_report(
+                    plan.target, generate_report
+                )
                 if resolved_mode is not None:
                     self.modos_seleccionados[archivo] = resolved_mode
+                reported_quality = (
+                    None
+                    if formato == "WEBP" and resolved_mode is WebPMode.LOSSLESS
+                    else calidad
+                )
                 results.append(
                     FileResult(
                         archivo,
@@ -1041,6 +1181,13 @@ class PanelImagen(PanelConversor):
                         encoder_mode=resolved_mode.value if resolved_mode else None,
                         output_action=plan.action.value,
                         name_collision=collision,
+                        warnings=checksum_warnings,
+                        width=source_width,
+                        height=source_height,
+                        output_width=output_width,
+                        output_height=output_height,
+                        quality=reported_quality,
+                        sha256=checksum,
                     )
                 )
             except Exception as error:
@@ -1059,11 +1206,18 @@ class PanelImagen(PanelConversor):
             self.notificar_avance(indice, len(archivos), archivo.name)
         self.raiz.after(0, self.estado.set, "Finalizando lote…")
         self.raiz.after(
-            0, self.finalizar_resultados, destino, results, discovery_errors
+            0,
+            self.finalizar_resultados,
+            destino,
+            results,
+            discovery_errors,
+            self.cancel_event.is_set(),
         )
 
 
 class PanelAudio(PanelConversor):
+    MEDIA_TYPE = "audio"
+
     def __init__(self, parent, raiz: Tk) -> None:
         super().__init__(parent, raiz, "Conversor de audio", EXT_AUDIO, FORMATOS_AUDIO)
 
@@ -1101,6 +1255,7 @@ class PanelAudio(PanelConversor):
         destino = origen / f"convertidos_{formato.lower()}"
         policy = OutputPolicy((opciones or {}).get("output_policy", OutputPolicy.SKIP))
         normalize = bool((opciones or {}).get("normalize_filenames", False))
+        generate_report = bool((opciones or {}).get("generate_report", False))
         results: list[FileResult] = []
         name_collisions = batch_name_collision_keys(
             destino, origen, archivos, extension, normalize
@@ -1163,6 +1318,9 @@ class PanelAudio(PanelConversor):
                 command.extend((*codec_args, str(plan.temporary)))
                 self.ejecutar_ffmpeg(command)
                 commit_output(plan)
+                checksum, checksum_warnings = self.checksum_for_report(
+                    plan.target, generate_report
+                )
                 results.append(
                     FileResult(
                         source,
@@ -1173,6 +1331,8 @@ class PanelAudio(PanelConversor):
                         processing_seconds=time.monotonic() - started,
                         output_action=plan.action.value,
                         name_collision=collision,
+                        warnings=checksum_warnings,
+                        sha256=checksum,
                     )
                 )
             except Exception as error:
@@ -1201,7 +1361,12 @@ class PanelAudio(PanelConversor):
             self.notificar_avance(index, len(archivos), source.name)
         self.raiz.after(0, self.estado.set, "Finalizando lote…")
         self.raiz.after(
-            0, self.finalizar_resultados, destino, results, errores_iniciales
+            0,
+            self.finalizar_resultados,
+            destino,
+            results,
+            errores_iniciales,
+            self.cancel_event.is_set(),
         )
 
     def convertir_lote(
@@ -1235,6 +1400,8 @@ class PanelAudio(PanelConversor):
 
 
 class PanelVideo(PanelAudio):
+    MEDIA_TYPE = "video"
+
     def __init__(self, parent, raiz: Tk) -> None:
         PanelConversor.__init__(
             self, parent, raiz, "Conversor de vídeo", EXT_VIDEO, FORMATOS_VIDEO
@@ -1331,8 +1498,8 @@ class PanelVideo(PanelAudio):
 class ConversorApp:
     def __init__(self, raiz: Tk) -> None:
         raiz.title("Conversor multimedia")
-        raiz.geometry("900x700")
-        raiz.minsize(760, 640)
+        raiz.geometry("900x740")
+        raiz.minsize(760, 680)
         pestañas = ttk.Notebook(raiz)
         pestañas.pack(fill="both", expand=True)
         pestañas.add(PanelImagen(pestañas, raiz), text=" Imágenes ")

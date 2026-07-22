@@ -13,7 +13,12 @@ from conversion_results import BatchSummary, ResultStatus, summary_text
 DETAIL_LIMIT = 50
 
 
-def show_summary(parent, summary: BatchSummary, output_root: Path) -> None:
+def show_summary(
+    parent,
+    summary: BatchSummary,
+    output_root: Path,
+    report_file: Path | None = None,
+) -> None:
     window = Toplevel(parent)
     window.title("Resumen de conversión")
     window.geometry("720x560")
@@ -29,6 +34,13 @@ def show_summary(parent, summary: BatchSummary, output_root: Path) -> None:
     text.pack(fill="both", expand=True)
 
     body = summary_text(summary) + f"\nCarpeta de salida: {output_root}\n"
+    if report_file is not None:
+        body += f"Informe JSON: {report_file}\n"
+    if summary.operation_warnings:
+        body += "\nAvisos de operación:\n"
+        body += (
+            "\n".join(f"- {warning}" for warning in summary.operation_warnings) + "\n"
+        )
     details = [
         result
         for result in summary.results

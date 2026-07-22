@@ -167,6 +167,18 @@ class SettingsStore:
     def save_normalize_filenames(self, enabled: bool) -> None:
         self._update("normalize_filenames", bool(enabled))
 
+    def load_generate_report(self) -> bool:
+        return self._read().get("generate_report") is True
+
+    def save_generate_report(self, enabled: bool) -> None:
+        self._update("generate_report", bool(enabled))
+
+    def load_report_absolute_paths(self) -> bool:
+        return self._read().get("report_absolute_paths") is True
+
+    def save_report_absolute_paths(self, enabled: bool) -> None:
+        self._update("report_absolute_paths", bool(enabled))
+
 
 def public_preset_data() -> list[dict[str, object]]:
     """Expose serializable data for validation and future media categories."""
