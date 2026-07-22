@@ -30,3 +30,11 @@ La transparencia de imagen se conserva en los formatos compatibles; JPEG usa fon
 ## Protección y tolerancia a errores
 
 Las conversiones anteriores no se sobrescriben: si un nombre ya existe, se añade un número. Un archivo dañado no detiene el resto del lote y el resumen final muestra los fallos. Las animaciones GIF/WebP se conservan cuando el formato de salida también admite animación.
+
+## Modos WebP
+
+- **Automático (predeterminado):** JPEG se codifica con pérdida; las animaciones, imágenes de paleta y muestras con 256 colores o menos se codifican sin pérdida; el resto se codifica con pérdida. Se consideran grandes las imágenes desde 1.000.000 de píxeles o 1.600 píxeles en cualquiera de sus dimensiones.
+- **Con pérdida:** usa el control de calidad para conseguir archivos más pequeños. El color puede variar ligeramente, pero el canal alfa continúa siendo compatible.
+- **Sin pérdida:** conserva exactamente los valores de los píxeles y desactiva el control de calidad. Puede producir archivos mayores.
+
+La decisión automática se realiza independientemente para cada archivo del lote y el modo elegido se muestra durante la conversión. Las exportaciones mantienen la política existente de la aplicación: no copian perfiles ICC ni metadatos EXIF. El modo con pérdida suele ser apropiado para fotografías e ilustraciones complejas; el modo sin pérdida, para iconos, gráficos planos y recursos que exigen fidelidad exacta.

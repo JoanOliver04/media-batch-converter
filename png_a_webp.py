@@ -11,6 +11,12 @@ from tkinter import BooleanVar, IntVar, StringVar, Tk, filedialog, messagebox
 from tkinter import ttk
 
 from batch_processing import discover_files, safe_output_directory
+from webp_encoding import (
+    WebPMode,
+    resolve_webp_mode,
+    webp_controls_visible,
+    webp_save_options,
+)
 
 
 def instalar_dependencias() -> None:
@@ -214,6 +220,7 @@ class PanelConversor(ttk.Frame):
                 self.formato.get(),
                 self.calidad.get(),
                 self.recursivo.get(),
+                self.opciones_conversion(),
             ),
             daemon=True,
         ).start()
@@ -225,6 +232,7 @@ class PanelConversor(ttk.Frame):
         formato: str,
         calidad: int,
         recursivo: bool,
+        opciones: dict[str, object],
     ) -> None:
         errores_descubrimiento: list[str] = []
         if archivos is None:
@@ -241,7 +249,12 @@ class PanelConversor(ttk.Frame):
         if not archivos:
             self.raiz.after(0, self.sin_archivos, errores_descubrimiento)
             return
-        self.convertir_lote(origen, archivos, formato, calidad, errores_descubrimiento)
+        self.convertir_lote(
+            origen, archivos, formato, calidad, errores_descubrimiento, opciones
+        )
+
+    def opciones_conversion(self) -> dict[str, object]:
+        return {}
 
     def preparar_progreso_conversion(self, total: int) -> None:
         self.progreso.stop()
@@ -255,6 +268,7 @@ class PanelConversor(ttk.Frame):
         formato: str,
         calidad: int,
         errores_iniciales: list[str] | None = None,
+        opciones: dict[str, object] | None = None,
     ) -> None:
         raise NotImplementedError
 
@@ -332,44 +346,119 @@ def ruta_salida_unica(carpeta: Path, nombre: str, extension: str) -> Path:
 
 
 class PanelImagen(PanelConversor):
+    WEBP_HELP = {
+        WebPMode.AUTOMATIC.value: "Automático elige por imagen entre tamaño reducido y fidelidad exacta.",
+        WebPMode.LOSSY.value: "Con pérdida reduce más el tamaño y conserva la transparencia.",
+        WebPMode.LOSSLESS.value: "Sin pérdida conserva exactamente los píxeles; la calidad no se aplica.",
+    }
+
     def __init__(self, parent, raiz: Tk) -> None:
         super().__init__(
             parent, raiz, "Conversor de imágenes", EXT_IMAGEN, FORMATOS_IMAGEN
         )
+        self.webp_mode = StringVar(value=WebPMode.AUTOMATIC.value)
+        self.webp_help = StringVar()
+        self.modos_seleccionados: dict[Path, WebPMode] = {}
+        self._bloqueado = False
+
+        for row in range(6, 3, -1):
+            for widget in self.grid_slaves(row=row):
+                widget.grid_configure(row=row + 1)
+
+        self.marco_webp = ttk.LabelFrame(self, text="Modo WebP", padding=(10, 6))
+        self.marco_webp.grid(row=4, column=0, sticky="ew", pady=(0, 12))
+        for column, (text, mode) in enumerate(
+            (
+                ("Automático", WebPMode.AUTOMATIC),
+                ("Con pérdida", WebPMode.LOSSY),
+                ("Sin pérdida", WebPMode.LOSSLESS),
+            )
+        ):
+            ttk.Radiobutton(
+                self.marco_webp,
+                text=text,
+                value=mode.value,
+                variable=self.webp_mode,
+                command=self.actualizar_controles_webp,
+            ).grid(row=0, column=column, padx=(0, 14), sticky="w")
+        ttk.Label(self.marco_webp, textvariable=self.webp_help, wraplength=680).grid(
+            row=1, column=0, columnspan=3, sticky="w", pady=(5, 0)
+        )
+        self.selector_formato.bind(
+            "<<ComboboxSelected>>", self.actualizar_controles_webp
+        )
+        self.actualizar_controles_webp()
+
+    def actualizar_controles_webp(self, _event=None) -> None:
+        visible = webp_controls_visible(self.formato.get())
+        if visible:
+            self.marco_webp.grid()
+            self.webp_help.set(self.WEBP_HELP[self.webp_mode.get()])
+        else:
+            self.marco_webp.grid_remove()
+        calidad_aplicable = not (
+            visible and self.webp_mode.get() == WebPMode.LOSSLESS.value
+        )
+        self.slider.configure(
+            state="normal" if calidad_aplicable and not self._bloqueado else "disabled"
+        )
+
+    def opciones_conversion(self) -> dict[str, object]:
+        return {"webp_mode": self.webp_mode.get()}
+
+    def bloquear(self, bloqueado: bool) -> None:
+        self._bloqueado = bloqueado
+        super().bloquear(bloqueado)
+        self.actualizar_controles_webp()
 
     @staticmethod
     def preparar_estatica(
-        imagen: Image.Image, formato: str, calidad: int
-    ) -> tuple[Image.Image, dict[str, object]]:
+        imagen: Image.Image,
+        formato: str,
+        calidad: int,
+        source: Path | str = "image.png",
+        requested_webp_mode: WebPMode | str = WebPMode.AUTOMATIC,
+    ) -> tuple[Image.Image, dict[str, object], WebPMode | None]:
         convertida = imagen.convert("RGBA")
-        opciones: dict[str, object] = {}
+        save_options: dict[str, object] = {}
+        resolved_mode: WebPMode | None = None
         if formato == "JPEG":
             fondo = Image.new("RGB", convertida.size, "white")
             fondo.paste(convertida, mask=convertida.getchannel("A"))
             convertida = fondo
-            opciones = {"quality": calidad, "optimize": True, "progressive": True}
+            save_options = {"quality": calidad, "optimize": True, "progressive": True}
         elif formato == "WEBP":
-            opciones = {"quality": calidad, "method": 6, "exact": True}
+            resolved_mode = resolve_webp_mode(requested_webp_mode, imagen, source)
+            save_options = webp_save_options(resolved_mode, calidad)
         elif formato == "PNG":
-            opciones = {"optimize": True, "compress_level": 9}
+            save_options = {"optimize": True, "compress_level": 9}
         elif formato == "TIFF":
-            opciones = {"compression": "tiff_deflate"}
+            save_options = {"compression": "tiff_deflate"}
         elif formato == "GIF":
-            opciones = {"optimize": True}
-        return convertida, opciones
+            save_options = {"optimize": True}
+        return convertida, save_options, resolved_mode
 
     def guardar_imagen(
-        self, imagen: Image.Image, salida: Path, formato: str, calidad: int
-    ) -> None:
+        self,
+        imagen: Image.Image,
+        salida: Path,
+        formato: str,
+        calidad: int,
+        source: Path | str | None = None,
+        requested_webp_mode: WebPMode | str = WebPMode.AUTOMATIC,
+    ) -> WebPMode | None:
+        source = source or salida
         es_animada = getattr(imagen, "is_animated", False) and formato in {
             "GIF",
             "WEBP",
         }
         if not es_animada:
             imagen.seek(0)
-            convertida, opciones = self.preparar_estatica(imagen, formato, calidad)
-            convertida.save(salida, format=formato, **opciones)
-            return
+            convertida, save_options, resolved_mode = self.preparar_estatica(
+                imagen, formato, calidad, source, requested_webp_mode
+            )
+            convertida.save(salida, format=formato, **save_options)
+            return resolved_mode
 
         fotogramas = [
             fotograma.convert("RGBA") for fotograma in ImageSequence.Iterator(imagen)
@@ -378,17 +467,34 @@ class PanelImagen(PanelConversor):
             fotograma.info.get("duration", imagen.info.get("duration", 100))
             for fotograma in ImageSequence.Iterator(imagen)
         ]
-        opciones: dict[str, object] = {
+        save_options: dict[str, object] = {
             "save_all": True,
             "append_images": fotogramas[1:],
             "duration": duraciones,
             "loop": imagen.info.get("loop", 0),
         }
+        resolved_mode: WebPMode | None = None
         if formato == "WEBP":
-            opciones.update({"quality": calidad, "method": 6, "exact": True})
+            resolved_mode = resolve_webp_mode(requested_webp_mode, imagen, source)
+            save_options.update(webp_save_options(resolved_mode, calidad))
         else:
-            opciones["optimize"] = True
-        fotogramas[0].save(salida, format=formato, **opciones)
+            save_options["optimize"] = True
+        fotogramas[0].save(salida, format=formato, **save_options)
+        return resolved_mode
+
+    def completar(self, destino: Path, exitos: int, errores: list[str]) -> None:
+        super().completar(destino, exitos, errores)
+        if self.modos_seleccionados:
+            lossless = sum(
+                mode is WebPMode.LOSSLESS for mode in self.modos_seleccionados.values()
+            )
+            lossy = sum(
+                mode is WebPMode.LOSSY for mode in self.modos_seleccionados.values()
+            )
+            self.estado.set(
+                f"Finalizado: {exitos} convertido(s). WebP sin pérdida: {lossless}; "
+                f"con pérdida: {lossy}; errores: {len(errores)}."
+            )
 
     def convertir_lote(
         self,
@@ -397,11 +503,14 @@ class PanelImagen(PanelConversor):
         elegido: str,
         calidad: int,
         errores_iniciales: list[str] | None = None,
+        opciones: dict[str, object] | None = None,
     ) -> None:
         formato, extension = FORMATOS_IMAGEN[elegido]
+        requested_mode = (opciones or {}).get("webp_mode", WebPMode.AUTOMATIC.value)
         destino = origen / f"convertidos_{elegido.lower()}"
         errores = list(errores_iniciales or [])
         exitos = 0
+        self.modos_seleccionados = {}
 
         for indice, archivo in enumerate(archivos, 1):
             if self.cancel_event.is_set():
@@ -418,7 +527,16 @@ class PanelImagen(PanelConversor):
                 carpeta_salida.mkdir(parents=True, exist_ok=True)
                 salida = ruta_salida_unica(carpeta_salida, archivo.stem, extension)
                 with Image.open(archivo) as imagen:
-                    self.guardar_imagen(imagen, salida, formato, calidad)
+                    resolved_mode = self.guardar_imagen(
+                        imagen, salida, formato, calidad, archivo, requested_mode
+                    )
+                if resolved_mode is not None:
+                    self.modos_seleccionados[archivo] = resolved_mode
+                    self.raiz.after(
+                        0,
+                        self.estado.set,
+                        f"{archivo.name}: WebP {resolved_mode.value}",
+                    )
                 exitos += 1
             except Exception as error:
                 if salida is not None:
@@ -460,6 +578,7 @@ class PanelAudio(PanelConversor):
         formato: str,
         calidad: int,
         errores_iniciales: list[str] | None = None,
+        opciones: dict[str, object] | None = None,
     ) -> None:
         destino = origen / f"convertidos_{formato.lower()}"
         bitrate = round(64 + calidad * 2.56)
@@ -533,6 +652,7 @@ class PanelVideo(PanelAudio):
         formato: str,
         calidad: int,
         errores_iniciales: list[str] | None = None,
+        opciones: dict[str, object] | None = None,
     ) -> None:
         destino = origen / f"convertidos_{formato.lower()}"
         crf = round(40 - calidad * 0.24)
