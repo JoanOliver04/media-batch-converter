@@ -14,6 +14,12 @@ from pathlib import Path
 from tkinter import BooleanVar, IntVar, StringVar, Tk, filedialog, messagebox
 from tkinter import ttk
 
+from audio_encoding import (
+    build_audio_args,
+    encoder_available,
+    manual_audio_settings,
+    validate_audio_settings,
+)
 from animation_handling import (
     AnimationMode,
     animation_supported,
@@ -59,8 +65,10 @@ from image_resize import (
     validate_resize_config,
 )
 from presets import (
+    AUDIO_PRESETS,
     CUSTOM_PRESET_ID,
     IMAGE_PRESETS,
+    AudioSettings,
     SettingsStore,
     preset_by_id,
     preset_matches,
@@ -1585,6 +1593,178 @@ class PanelAudio(PanelConversor):
 
     def __init__(self, parent, raiz: Tk) -> None:
         super().__init__(parent, raiz, "Conversor de audio", EXT_AUDIO, FORMATOS_AUDIO)
+        self._applying_audio_preset = False
+        self.audio_preset_display = StringVar(value="Personalizado")
+        self.audio_preset_description = StringVar(value="Ajustes de audio manuales.")
+        self.audio_sample_rate = StringVar(value="Preservar")
+        self.audio_channels = StringVar(value="Preservar")
+        self.audio_bitrate = StringVar(value="192")
+        self._audio_preset_ids = {
+            preset.display_name: preset.preset_id for preset in AUDIO_PRESETS
+        }
+
+        ttk.Label(self.opciones_frame, text="Preset de audio:").grid(
+            row=1, column=0, padx=(0, 10), pady=(10, 0), sticky="w"
+        )
+        self.audio_preset_selector = ttk.Combobox(
+            self.opciones_frame,
+            textvariable=self.audio_preset_display,
+            values=(
+                "Personalizado",
+                *(preset.display_name for preset in AUDIO_PRESETS),
+            ),
+            state="readonly",
+            width=28,
+        )
+        self.audio_preset_selector.grid(
+            row=1, column=1, padx=(0, 16), pady=(10, 0), sticky="w"
+        )
+        ttk.Label(
+            self.opciones_frame,
+            textvariable=self.audio_preset_description,
+            wraplength=390,
+        ).grid(row=1, column=2, columnspan=3, pady=(10, 0), sticky="w")
+        self.audio_preset_selector.bind(
+            "<<ComboboxSelected>>", self.apply_selected_audio_preset
+        )
+
+        for row in range(6, 3, -1):
+            for widget in self.grid_slaves(row=row):
+                widget.grid_configure(row=row + 1)
+        self.audio_advanced = ttk.LabelFrame(
+            self, text="Ajustes de audio", padding=(10, 7)
+        )
+        self.audio_advanced.grid(row=4, column=0, sticky="ew", pady=(0, 12))
+        ttk.Label(self.audio_advanced, text="Frecuencia:").grid(row=0, column=0)
+        self.audio_sample_selector = ttk.Combobox(
+            self.audio_advanced,
+            textvariable=self.audio_sample_rate,
+            values=("Preservar", "44100", "48000"),
+            state="readonly",
+            width=11,
+        )
+        self.audio_sample_selector.grid(row=0, column=1, padx=(8, 20))
+        ttk.Label(self.audio_advanced, text="Canales:").grid(row=0, column=2)
+        self.audio_channel_selector = ttk.Combobox(
+            self.audio_advanced,
+            textvariable=self.audio_channels,
+            values=("Preservar", "Mono", "Estéreo"),
+            state="readonly",
+            width=11,
+        )
+        self.audio_channel_selector.grid(row=0, column=3, padx=(8, 20))
+        ttk.Label(self.audio_advanced, text="Bitrate (kbps):").grid(row=0, column=4)
+        self.audio_bitrate_entry = ttk.Entry(
+            self.audio_advanced, textvariable=self.audio_bitrate, width=7
+        )
+        self.audio_bitrate_entry.grid(row=0, column=5, padx=(8, 0))
+        ttk.Label(
+            self.audio_advanced,
+            text="Sin normalización de sonoridad; se conserva la duración completa.",
+        ).grid(row=1, column=0, columnspan=6, pady=(6, 0), sticky="w")
+
+        for variable in (
+            self.formato,
+            self.calidad,
+            self.audio_sample_rate,
+            self.audio_channels,
+            self.audio_bitrate,
+        ):
+            variable.trace_add("write", self.audio_settings_changed)
+        self.apply_audio_preset_id(self.settings_store.load_last_audio_preset())
+
+    def apply_selected_audio_preset(self, _event=None) -> None:
+        self.apply_audio_preset_id(
+            self._audio_preset_ids.get(
+                self.audio_preset_display.get(), CUSTOM_PRESET_ID
+            )
+        )
+
+    def apply_audio_preset_id(self, preset_id: str) -> None:
+        preset = preset_by_id(preset_id)
+        if (
+            preset is None
+            or preset.media_category != "audio"
+            or preset.audio_settings is None
+        ):
+            self.audio_preset_display.set("Personalizado")
+            self.audio_preset_description.set("Ajustes de audio manuales.")
+            selected_id = CUSTOM_PRESET_ID
+        else:
+            settings = preset.audio_settings
+            self._applying_audio_preset = True
+            try:
+                self.audio_preset_display.set(preset.display_name)
+                self.audio_preset_description.set(preset.description)
+                self.formato.set(preset.output_format)
+                self.audio_sample_rate.set(
+                    str(settings.sample_rate) if settings.sample_rate else "Preservar"
+                )
+                self.audio_channels.set(
+                    {None: "Preservar", 1: "Mono", 2: "Estéreo"}[settings.channels]
+                )
+                self.audio_bitrate.set(
+                    str(settings.bitrate_kbps) if settings.bitrate_kbps else ""
+                )
+                selected_id = preset.preset_id
+            finally:
+                self._applying_audio_preset = False
+        try:
+            self.settings_store.save_last_audio_preset(selected_id)
+        except OSError:
+            pass
+
+    def audio_settings_changed(self, *_args) -> None:
+        if self._applying_audio_preset:
+            return
+        self.audio_preset_display.set("Personalizado")
+        self.audio_preset_description.set("Ajustes de audio modificados manualmente.")
+        try:
+            self.settings_store.save_last_audio_preset(CUSTOM_PRESET_ID)
+        except OSError:
+            pass
+
+    def current_audio_settings(self) -> AudioSettings:
+        sample_rate = (
+            None
+            if self.audio_sample_rate.get() == "Preservar"
+            else int(self.audio_sample_rate.get())
+        )
+        channels = {"Preservar": None, "Mono": 1, "Estéreo": 2}[
+            self.audio_channels.get()
+        ]
+        bitrate_text = self.audio_bitrate.get().strip()
+        bitrate = int(bitrate_text) if bitrate_text else None
+        return manual_audio_settings(
+            self.formato.get(),
+            self.calidad.get(),
+            sample_rate,
+            channels,
+            bitrate,
+        )
+
+    def validar_inicio(self) -> str | None:
+        try:
+            validate_audio_settings(self.formato.get(), self.current_audio_settings())
+        except (KeyError, ValueError, NotImplementedError) as error:
+            return str(error)
+        return None
+
+    def opciones_conversion(self) -> dict[str, object]:
+        options = super().opciones_conversion()
+        options["audio_settings"] = self.current_audio_settings()
+        options["audio_preset"] = self._audio_preset_ids.get(
+            self.audio_preset_display.get(), CUSTOM_PRESET_ID
+        )
+        return options
+
+    def bloquear(self, bloqueado: bool) -> None:
+        super().bloquear(bloqueado)
+        selector_state = "disabled" if bloqueado else "readonly"
+        self.audio_preset_selector.configure(state=selector_state)
+        self.audio_sample_selector.configure(state=selector_state)
+        self.audio_channel_selector.configure(state=selector_state)
+        self.audio_bitrate_entry.configure(state="disabled" if bloqueado else "normal")
 
     def ejecutar_ffmpeg(self, comando: list[str]) -> None:
         flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -1616,6 +1796,7 @@ class PanelAudio(PanelConversor):
         errores_iniciales: list[str],
         opciones: dict[str, object] | None,
         audio_only: bool,
+        required_encoder: str | None = None,
     ) -> None:
         destino = origen / f"convertidos_{formato.lower()}"
         policy = OutputPolicy((opciones or {}).get("output_policy", OutputPolicy.SKIP))
@@ -1629,6 +1810,13 @@ class PanelAudio(PanelConversor):
             ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
         except Exception as error:
             self.raiz.after(0, self.fallar, str(error))
+            return
+        if required_encoder and not encoder_available(ffmpeg, required_encoder):
+            self.raiz.after(
+                0,
+                self.fallar,
+                f"FFmpeg no incluye el codificador requerido: {required_encoder}.",
+            )
             return
 
         for index, source in enumerate(archivos, 1):
@@ -1743,24 +1931,20 @@ class PanelAudio(PanelConversor):
         errores_iniciales: list[str] | None = None,
         opciones: dict[str, object] | None = None,
     ) -> None:
-        bitrate = round(64 + calidad * 2.56)
-        codecs = {
-            "MP3": ["-c:a", "libmp3lame", "-b:a", f"{bitrate}k"],
-            "WAV": ["-c:a", "pcm_s16le"],
-            "FLAC": ["-c:a", "flac", "-compression_level", "8"],
-            "OGG": ["-c:a", "libvorbis", "-q:a", str(max(1, round(calidad / 10)))],
-            "M4A": ["-c:a", "aac", "-b:a", f"{bitrate}k"],
-            "Opus": ["-c:a", "libopus", "-b:a", f"{min(bitrate, 256)}k"],
-        }
+        settings = (opciones or {}).get("audio_settings")
+        if not isinstance(settings, AudioSettings):
+            settings = manual_audio_settings(formato, calidad, None, None, None)
+        codec_args = build_audio_args(formato, settings)
         self.convertir_ffmpeg_lote(
             origen,
             archivos,
             formato,
             FORMATOS_AUDIO[formato],
-            codecs[formato],
+            codec_args,
             list(errores_iniciales or []),
             opciones,
             True,
+            required_encoder=settings.codec,
         )
 
 

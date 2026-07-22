@@ -96,6 +96,10 @@ class SettingsTests(unittest.TestCase):
             self.assertTrue(store.load_report_absolute_paths())
             store.save_animation_mode("first_frame")
             self.assertEqual(store.load_animation_mode(), "first_frame")
+            store.save_last_audio_preset("voice_dialogue")
+            self.assertEqual(store.load_last_audio_preset(), "voice_dialogue")
+            store.save_last_audio_preset("unknown")
+            self.assertEqual(store.load_last_audio_preset(), CUSTOM_PRESET_ID)
 
             store.save_output_policy("invalid")
             self.assertEqual(store.load_output_policy(), "skip")
@@ -148,6 +152,29 @@ class PresetUiTests(unittest.TestCase):
         self.assertEqual(
             panel.output_name_preview.get(), "Nombre de salida: voice_final.mp3"
         )
+
+    def test_audio_preset_applies_and_manual_override_is_custom(self) -> None:
+        panel = PanelAudio(self.root, self.root)
+        panel.apply_audio_preset_id("runtime_sound_effect")
+        self.assertEqual(panel.formato.get(), "M4A")
+        self.assertEqual(panel.audio_sample_rate.get(), "48000")
+        self.assertEqual(panel.audio_channels.get(), "Mono")
+        self.assertEqual(panel.audio_bitrate.get(), "128")
+        settings = panel.opciones_conversion()["audio_settings"]
+        self.assertEqual((settings.codec, settings.channels), ("aac", 1))
+
+        panel.audio_channels.set("Estéreo")
+        self.assertEqual(panel.audio_preset_display.get(), "Personalizado")
+        self.assertEqual(panel.current_audio_settings().channels, 2)
+
+    def test_audio_master_preserves_channels_and_uses_24_bit_pcm(self) -> None:
+        panel = PanelAudio(self.root, self.root)
+        panel.apply_audio_preset_id("master_wav")
+        settings = panel.current_audio_settings()
+        self.assertEqual(panel.formato.get(), "WAV")
+        self.assertEqual(settings.codec, "pcm_s24le")
+        self.assertIsNone(settings.channels)
+        self.assertIsNone(settings.bitrate_kbps)
 
     def test_report_defaults_are_private_and_optional(self) -> None:
         self.assertFalse(self.panel.generate_report.get())

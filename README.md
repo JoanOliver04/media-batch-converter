@@ -157,7 +157,21 @@ Los presets aplican formato, modo WebP y calidad de una sola vez. Después se pu
 | Miniatura | WebP | Con pérdida | 78 | Imágenes compactas; todavía sin redimensionado |
 | Archivo sin pérdida | PNG | Sin pérdida | No aplica | Conservación y archivo |
 
-Todos los presets mantienen las dimensiones originales. El modelo reserva opciones de redimensionado y de audio/vídeo para ampliaciones posteriores, pero no aplica silenciosamente funciones todavía no disponibles.
+Todos los presets de imagen mantienen las dimensiones originales. El redimensionado se controla por separado y cualquier cambio manual deja el preset en estado **Personalizado**.
+
+## Presets de audio
+
+Los presets de producción configuran de forma conjunta contenedor, códec, frecuencia, canales y bitrate. FFmpeg recibe siempre una lista de argumentos —incluidas rutas con espacios o caracteres Unicode— y la aplicación comprueba que el codificador necesario esté disponible antes de iniciar el lote. No se recorta la duración ni se normaliza la sonoridad de forma implícita.
+
+| Preset | Salida y códec | Frecuencia | Canales | Bitrate | Uso previsto |
+| --- | --- | ---: | --- | ---: | --- |
+| Música de ejecución | M4A, AAC-LC | 48 kHz | Estéreo | 192 kbps | Música final para reproducción |
+| Ambiente de ejecución | M4A, AAC-LC | 48 kHz | Estéreo | 160 kbps | Ambientes de uso final |
+| Efecto de sonido | M4A, AAC-LC | 48 kHz | Mono | 128 kbps | Efectos compactos; admite cambio manual a estéreo |
+| Máster WAV | WAV, PCM firmado de 24 bits | 48 kHz | Conservar origen | Sin pérdida | Máster editable y archivo |
+| Voz o diálogo | M4A, AAC-LC | 48 kHz | Mono | 96 kbps | Locución y diálogo |
+
+El selector recuerda el último preset de audio. Frecuencia, canales y bitrate siguen siendo editables; al cambiarlos, el estado pasa a **Personalizado** para reflejar con precisión la configuración que se exportará. WAV y FLAC ignoran el bitrate porque son salidas sin pérdida. El máster WAV conserva el número de canales de la fuente y usa `pcm_s24le`; los presets M4A declaran explícitamente el perfil AAC-LC.
 
 ## Redimensionado de imágenes
 

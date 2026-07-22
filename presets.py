@@ -15,6 +15,17 @@ CUSTOM_PRESET_ID = "custom"
 
 
 @dataclass(frozen=True, slots=True)
+class AudioSettings:
+    codec: str
+    sample_rate: int | None
+    channels: int | None
+    bitrate_kbps: int | None
+    quality_mode: str
+    profile: str | None = None
+    normalize_loudness: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class ConversionPreset:
     preset_id: str
     display_name: str
@@ -24,7 +35,7 @@ class ConversionPreset:
     quality: int | None = None
     webp_mode: WebPMode | None = None
     resize_mode: str = "original"
-    audio_settings: dict[str, object] | None = None
+    audio_settings: AudioSettings | None = None
     video_settings: dict[str, object] | None = None
 
 
@@ -85,7 +96,52 @@ IMAGE_PRESETS = (
     ),
 )
 
-PRESETS_BY_ID = {preset.preset_id: preset for preset in IMAGE_PRESETS}
+AUDIO_PRESETS = (
+    ConversionPreset(
+        "runtime_music",
+        "Música de ejecución",
+        "AAC-LC estéreo a 48 kHz y 192 kbps para música de uso final.",
+        "audio",
+        "M4A",
+        audio_settings=AudioSettings("aac", 48_000, 2, 192, "bitrate", "aac_low"),
+    ),
+    ConversionPreset(
+        "runtime_ambience",
+        "Ambiente de ejecución",
+        "AAC-LC estéreo a 48 kHz y 160 kbps para ambientes.",
+        "audio",
+        "M4A",
+        audio_settings=AudioSettings("aac", 48_000, 2, 160, "bitrate", "aac_low"),
+    ),
+    ConversionPreset(
+        "runtime_sound_effect",
+        "Efecto de sonido",
+        "AAC-LC mono a 48 kHz y 128 kbps; puede cambiarse a estéreo.",
+        "audio",
+        "M4A",
+        audio_settings=AudioSettings("aac", 48_000, 1, 128, "bitrate", "aac_low"),
+    ),
+    ConversionPreset(
+        "master_wav",
+        "Máster WAV",
+        "PCM firmado de 24 bits a 48 kHz; conserva los canales de origen.",
+        "audio",
+        "WAV",
+        audio_settings=AudioSettings("pcm_s24le", 48_000, None, None, "lossless"),
+    ),
+    ConversionPreset(
+        "voice_dialogue",
+        "Voz o diálogo",
+        "AAC-LC mono a 48 kHz y 96 kbps para voz.",
+        "audio",
+        "M4A",
+        audio_settings=AudioSettings("aac", 48_000, 1, 96, "bitrate", "aac_low"),
+    ),
+)
+
+PRESETS_BY_ID = {
+    preset.preset_id: preset for preset in (*IMAGE_PRESETS, *AUDIO_PRESETS)
+}
 
 
 def preset_by_id(preset_id: str | None) -> ConversionPreset | None:
@@ -93,7 +149,8 @@ def preset_by_id(preset_id: str | None) -> ConversionPreset | None:
 
 
 def normalized_preset_id(preset_id: str | None) -> str:
-    return preset_id if preset_id in PRESETS_BY_ID else CUSTOM_PRESET_ID
+    image_ids = {preset.preset_id for preset in IMAGE_PRESETS}
+    return preset_id if preset_id in image_ids else CUSTOM_PRESET_ID
 
 
 def preset_matches(
@@ -179,6 +236,18 @@ class SettingsStore:
     def save_report_absolute_paths(self, enabled: bool) -> None:
         self._update("report_absolute_paths", bool(enabled))
 
+    def load_last_audio_preset(self) -> str:
+        value = self._read().get("last_audio_preset")
+        audio_ids = {preset.preset_id for preset in AUDIO_PRESETS}
+        return value if value in audio_ids else CUSTOM_PRESET_ID
+
+    def save_last_audio_preset(self, preset_id: str) -> None:
+        audio_ids = {preset.preset_id for preset in AUDIO_PRESETS}
+        self._update(
+            "last_audio_preset",
+            preset_id if preset_id in audio_ids else CUSTOM_PRESET_ID,
+        )
+
     def load_animation_mode(self) -> str:
         value = self._read().get("animation_mode")
         return (
@@ -198,4 +267,4 @@ class SettingsStore:
 
 def public_preset_data() -> list[dict[str, object]]:
     """Expose serializable data for validation and future media categories."""
-    return [asdict(preset) for preset in IMAGE_PRESETS]
+    return [asdict(preset) for preset in (*IMAGE_PRESETS, *AUDIO_PRESETS)]
