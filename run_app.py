@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from tkinter import Tk, messagebox
 
+from app_logging import configure_logging
 from runtime_environment import INSTALL_COMMAND, missing_python_dependencies
 
 
@@ -23,6 +24,7 @@ def show_dependency_error(missing: list[str]) -> None:
 
 
 def main() -> int:
+    configure_logging()
     missing = missing_python_dependencies()
     required = [name for name in missing if name == "Pillow"]
     if required:

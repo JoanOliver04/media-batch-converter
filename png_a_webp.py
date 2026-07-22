@@ -10,8 +10,19 @@ import time
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from tkinter import BooleanVar, IntVar, StringVar, Text, Tk, filedialog, messagebox
+from tkinter import (
+    BooleanVar,
+    Canvas,
+    IntVar,
+    StringVar,
+    Text,
+    Tk,
+    filedialog,
+    messagebox,
+)
 from tkinter import ttk
+
+from PIL import Image, ImageOps, ImageSequence
 
 from audio_encoding import (
     build_audio_args,
@@ -41,6 +52,7 @@ from conversion_results import (
     ResultStatus,
     safe_file_size,
 )
+from error_handling import describe_error
 from filename_normalization import collision_keys, output_filename, path_key
 from output_policy import (
     OutputAction,
@@ -76,6 +88,7 @@ from presets import (
 from runtime_environment import diagnostics_text, resolve_ffmpeg
 from summary_dialog import show_summary
 from video_encoding import (
+    ProgressLimiter,
     VideoSettings,
     build_video_args,
     parse_progress_seconds,
@@ -89,8 +102,7 @@ from webp_encoding import (
     webp_save_options,
 )
 
-
-from PIL import Image, ImageOps, ImageSequence
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 
 FORMATOS_IMAGEN = {
@@ -560,7 +572,9 @@ class PanelConversor(ttk.Frame):
         except HashCancelled:
             return None, ("SHA-256 cancelado; el archivo convertido se conserva.",)
         except OSError as error:
-            return None, (f"No se pudo calcular SHA-256: {error}",)
+            return None, (
+                "No se pudo calcular SHA-256. " + describe_error(error).message,
+            )
         return checksum, (warning,) if warning else ()
 
     def finalizar_resultados(
@@ -605,8 +619,11 @@ class PanelConversor(ttk.Frame):
             generated_path = report_path(destino, completed_at)
             write_report_atomic(generated_path, report)
         except Exception as error:
+            logging.getLogger(__name__).exception("report_generation_failed")
             generated_path = None
-            warning = f"No se pudo escribir el informe JSON: {error}"
+            warning = (
+                "No se pudo escribir el informe JSON. " + describe_error(error).message
+            )
             summary = replace(summary, operation_warnings=(warning,))
         self.raiz.after(0, self.mostrar_resultados, destino, summary, generated_path)
 
@@ -629,6 +646,20 @@ class PanelConversor(ttk.Frame):
             summary.elapsed_seconds,
             summary.cancelled,
         )
+        logger = logging.getLogger(__name__)
+        for result in summary.results:
+            for warning in result.warnings:
+                logger.warning(
+                    "conversion_warning source=%s code=%s severity=%s message=%s",
+                    result.source,
+                    getattr(
+                        getattr(warning, "code", None), "value", "OPERATION_WARNING"
+                    ),
+                    getattr(getattr(warning, "severity", None), "value", "warning"),
+                    getattr(warning, "message", str(warning)),
+                )
+        for warning in summary.operation_warnings:
+            logger.warning("batch_warning message=%s", warning)
         if summary.operation_warnings:
             messagebox.showwarning(
                 "Informe no generado", "\n".join(summary.operation_warnings)
@@ -655,6 +686,7 @@ class PanelConversor(ttk.Frame):
             )
 
     def fallar(self, detalle: str) -> None:
+        logging.getLogger(__name__).error("batch_aborted detail=%s", detalle)
         self.bloquear(False)
         self.estado.set("La conversión se interrumpió debido a un error.")
         messagebox.showerror("Error de conversión", detalle)
@@ -1530,6 +1562,9 @@ class PanelImagen(PanelConversor):
                     )
                 )
             except Exception as error:
+                logging.getLogger(__name__).exception(
+                    "conversion_failed source=%s", archivo
+                )
                 cleanup_temporary(plan)
                 if isinstance(error, ImageValidationError):
                     validation_warnings = error.warnings
@@ -1549,7 +1584,7 @@ class PanelImagen(PanelConversor):
                         None,
                         ResultStatus.FAILED,
                         original_bytes,
-                        error_message=str(error),
+                        error_message=describe_error(error).message,
                         processing_seconds=time.monotonic() - started,
                         name_collision=collision,
                         warnings=validation_warnings,
@@ -1881,9 +1916,16 @@ class PanelAudio(PanelConversor):
                     command.extend(("-progress", "pipe:2", "-nostats"))
                 command.extend((*codec_args, str(plan.temporary)))
 
+                progress_limiter = ProgressLimiter()
+
                 def update_media_progress(seconds: float) -> None:
                     if duration and duration > 0:
-                        value = (index - 1) + min(1.0, max(0.0, seconds / duration))
+                        fraction = min(1.0, max(0.0, seconds / duration))
+                        if not progress_limiter.should_emit(
+                            time.monotonic(), completed=fraction >= 1.0
+                        ):
+                            return
+                        value = (index - 1) + fraction
                         self.raiz.after(0, self.progreso.configure, {"value": value})
 
                 if audio_only:
@@ -1909,6 +1951,9 @@ class PanelAudio(PanelConversor):
                     )
                 )
             except Exception as error:
+                logging.getLogger(__name__).exception(
+                    "conversion_failed source=%s", source
+                )
                 cleanup_temporary(plan)
                 if self.cancel_event.is_set():
                     self.raiz.after(
@@ -1926,7 +1971,7 @@ class PanelAudio(PanelConversor):
                         None,
                         ResultStatus.FAILED,
                         original_bytes,
-                        error_message=str(error),
+                        error_message=describe_error(error).message,
                         processing_seconds=time.monotonic() - started,
                         name_collision=collision,
                     )
@@ -2288,6 +2333,61 @@ class PanelVideo(PanelAudio):
         )
 
 
+class ScrollableTab(ttk.Frame):
+    """Keyboard-accessible viewport that prevents clipping at high DPI."""
+
+    def __init__(self, parent, panel_type, raiz: Tk) -> None:
+        super().__init__(parent)
+        self.canvas = Canvas(self, highlightthickness=0, takefocus=True)
+        vertical = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        horizontal = ttk.Scrollbar(self, orient="horizontal", command=self.canvas.xview)
+        self.canvas.configure(
+            yscrollcommand=vertical.set,
+            xscrollcommand=horizontal.set,
+        )
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        vertical.grid(row=0, column=1, sticky="ns")
+        horizontal.grid(row=1, column=0, sticky="ew")
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+        self.panel = panel_type(self.canvas, raiz)
+        self.window_item = self.canvas.create_window(
+            (0, 0), window=self.panel, anchor="nw"
+        )
+        self.panel.bind("<Configure>", self._content_configured)
+        self.canvas.bind("<Configure>", self._viewport_configured)
+        self.canvas.bind("<MouseWheel>", self._mousewheel)
+        self._bind_mousewheel(self.panel)
+        self.canvas.bind("<Prior>", lambda _event: self._scroll_pages(-1))
+        self.canvas.bind("<Next>", lambda _event: self._scroll_pages(1))
+        self.canvas.bind("<Up>", lambda _event: self._scroll_units(-1))
+        self.canvas.bind("<Down>", lambda _event: self._scroll_units(1))
+
+    def _bind_mousewheel(self, widget) -> None:
+        widget.bind("<MouseWheel>", self._mousewheel, add="+")
+        for child in widget.winfo_children():
+            self._bind_mousewheel(child)
+
+    def _content_configured(self, _event=None) -> None:
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def _viewport_configured(self, event) -> None:
+        requested = self.panel.winfo_reqwidth()
+        self.canvas.itemconfigure(self.window_item, width=max(event.width, requested))
+
+    def _mousewheel(self, event) -> str:
+        self.canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+        return "break"
+
+    def _scroll_pages(self, amount: int) -> str:
+        self.canvas.yview_scroll(amount, "pages")
+        return "break"
+
+    def _scroll_units(self, amount: int) -> str:
+        self.canvas.yview_scroll(amount, "units")
+        return "break"
+
+
 class DiagnosticsPanel(ttk.Frame):
     def __init__(self, parent, raiz: Tk) -> None:
         super().__init__(parent, padding=24)
@@ -2295,7 +2395,7 @@ class DiagnosticsPanel(ttk.Frame):
         ttk.Label(self, text="Diagnóstico", font=("Segoe UI", 18, "bold")).pack(
             anchor="w", pady=(0, 14)
         )
-        self.text = Text(self, wrap="word", height=22, width=90)
+        self.text = Text(self, wrap="word", height=22, width=1)
         self.text.pack(fill="both", expand=True)
         actions = ttk.Frame(self)
         actions.pack(anchor="e", pady=(12, 0))
@@ -2326,12 +2426,14 @@ class ConversorApp:
         raiz.minsize(760, 740)
         pestañas = ttk.Notebook(raiz)
         pestañas.pack(fill="both", expand=True)
-        image_panel = PanelImagen(pestañas, raiz)
-        audio_panel = PanelAudio(pestañas, raiz)
-        video_panel = PanelVideo(pestañas, raiz)
-        pestañas.add(image_panel, text=" Imágenes ")
-        pestañas.add(audio_panel, text=" Audio ")
-        pestañas.add(video_panel, text=" Vídeo ")
+        image_tab = ScrollableTab(pestañas, PanelImagen, raiz)
+        audio_tab = ScrollableTab(pestañas, PanelAudio, raiz)
+        video_tab = ScrollableTab(pestañas, PanelVideo, raiz)
+        audio_panel = audio_tab.panel
+        video_panel = video_tab.panel
+        pestañas.add(image_tab, text=" Imágenes ")
+        pestañas.add(audio_tab, text=" Audio ")
+        pestañas.add(video_tab, text=" Vídeo ")
         pestañas.add(DiagnosticsPanel(pestañas, raiz), text=" Diagnóstico ")
         if resolve_ffmpeg() is None:
             unavailable = (
@@ -2340,8 +2442,8 @@ class ConversorApp:
             )
             audio_panel.estado.set(unavailable)
             video_panel.estado.set(unavailable)
-            pestañas.tab(audio_panel, state="disabled")
-            pestañas.tab(video_panel, state="disabled")
+            pestañas.tab(audio_tab, state="disabled")
+            pestañas.tab(video_tab, state="disabled")
 
 
 def main() -> None:

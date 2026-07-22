@@ -234,7 +234,7 @@ FFmpeg se busca en este orden:
 2. El ejecutable proporcionado por `imageio-ffmpeg`.
 3. `ffmpeg` disponible en `PATH`.
 
-La pestaña **Diagnóstico** muestra versión de la aplicación, Python, sistema operativo, Pillow, formatos de imagen, versión, proveedor y ruta de FFmpeg. **Copiar diagnóstico** sustituye la carpeta personal por `~` para evitar divulgar rutas locales innecesarias.
+La pestaña **Diagnóstico** muestra versión de la aplicación, Python, sistema operativo, Pillow, formatos de imagen, versión, proveedor y ruta de FFmpeg, además de la ubicación anonimizada del registro local rotatorio. **Copiar diagnóstico** sustituye la carpeta personal por `~` para evitar divulgar rutas locales innecesarias.
 
 Solución de problemas:
 
@@ -262,3 +262,8 @@ El build no abre consola, incluye los plugins de Pillow, recursos de Tkinter, me
 ### Smoke test de distribución
 
 Antes de publicar una compilación se comprueba: inicio y cierre de la GUI; PNG a WebP con transparencia; conversión de audio; vídeo a MP4; carpeta recursiva; creación de salidas y limpieza tras cancelar. La compilación debe conservar operativas las imágenes aunque el FFmpeg incluido se retire para simular un fallo.
+## Accesibilidad y diagnóstico de errores
+
+Las pestañas de imagen, audio y vídeo disponen de desplazamiento vertical y horizontal mediante rueda, barras, flechas y AvPág/RePág. Esto mantiene accesibles todos los controles con escalas de Windows del 100%, 125%, 150% y 200%, sin cambiar el orden lógico de tabulación ni los estados de foco nativos.
+
+Los diálogos muestran mensajes seguros y accionables para permisos, espacio insuficiente, archivos ausentes, ajustes inválidos, operaciones no compatibles, fallos de codificador y cancelación. Los detalles y trazas se guardan localmente con rotación limitada; los avisos agregados se conservan de forma coherente en el resumen, el informe JSON y el registro.

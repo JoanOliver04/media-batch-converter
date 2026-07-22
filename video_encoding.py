@@ -28,6 +28,20 @@ _TIME = re.compile(r"\btime=(\d+):(\d+):(\d+(?:\.\d+)?)")
 _OUT_TIME = re.compile(r"^out_time=(\d+):(\d+):(\d+(?:\.\d+)?)$")
 
 
+@dataclass(slots=True)
+class ProgressLimiter:
+    """Limit UI notifications while always allowing completion updates."""
+
+    interval_seconds: float = 0.1
+    last_emit: float = float("-inf")
+
+    def should_emit(self, now: float, completed: bool = False) -> bool:
+        if completed or now - self.last_emit >= self.interval_seconds:
+            self.last_emit = now
+            return True
+        return False
+
+
 @dataclass(frozen=True, slots=True)
 class VideoSettings:
     video_codec: str

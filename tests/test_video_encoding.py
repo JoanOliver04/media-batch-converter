@@ -141,6 +141,50 @@ class VideoBatchTests(unittest.TestCase):
         panel.finalizar_resultados = lambda *_args: None
         return panel
 
+    def test_crop_conversion_accepts_source_without_audio_stream(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
+            root = Path(temporary)
+            source = root / "silent vídeo.mp4"
+            source.write_bytes(b"source")
+            panel = self.make_panel()
+            commands: list[list[str]] = []
+            completion: dict[str, object] = {}
+
+            def execute(command, callback):
+                commands.append(command)
+                callback(1.0)
+                Path(command[-1]).write_bytes(b"converted")
+
+            panel.ejecutar_ffmpeg = execute
+            panel.finalizar_resultados = lambda destination, results, errors, *args: (
+                completion.update(results=results)
+            )
+            settings = replace(
+                VIDEO_PRESETS[2].video_settings,
+                aspect_mode="fill",
+                remove_audio=False,
+            )
+            with (
+                patch(
+                    "png_a_webp.resolve_ffmpeg", return_value=Mock(path=Path("ffmpeg"))
+                ),
+                patch("png_a_webp.encoder_available", return_value=True),
+                patch("png_a_webp.probe_media", return_value=(1.0, False)),
+            ):
+                panel.convertir_ffmpeg_lote(
+                    root,
+                    [source],
+                    "MP4",
+                    ".mp4",
+                    build_video_args("MP4", settings),
+                    [],
+                    {},
+                    False,
+                    required_encoder=("libx264", "aac"),
+                )
+            self.assertIn("crop=1080:1920", commands[0][commands[0].index("-vf") + 1])
+            self.assertEqual(completion["results"][0].status.value, "converted")
+
     def test_cancellation_cleans_temporary_output(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
             root = Path(temporary)

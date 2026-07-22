@@ -11,6 +11,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from app_logging import log_path
+
 
 APP_VERSION = "1.0.0"
 INSTALL_COMMAND = "python -m pip install -r requirements.txt"
@@ -137,6 +139,7 @@ def diagnostics_text(ffmpeg: FFmpegInfo | None = None) -> str:
         f"FFmpeg: {ffmpeg.version if ffmpeg else 'No disponible'}",
         f"Proveedor FFmpeg: {ffmpeg.source if ffmpeg else 'Ninguno'}",
         f"Ruta FFmpeg: {private_path(ffmpeg.path) if ffmpeg else 'No disponible'}",
+        f"Registro local: {private_path(log_path())}",
         f"Formatos de imagen registrados: {image_formats}",
     ]
     return "\n".join(lines)
