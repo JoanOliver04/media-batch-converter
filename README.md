@@ -45,6 +45,34 @@ La comparación temporal depende de la precisión del sistema de archivos y cons
 El algoritmo toma el nombre sin extensión, aplica Unicode NFKD, elimina marcas diacríticas cuando es posible, convierte a minúsculas ASCII y transforma separadores o puntuación en guiones bajos. Después colapsa separadores repetidos, retira los situados en los extremos y conserva solo `a-z`, `0-9` y `_`. Los nombres que empiezan por un número o están reservados en Windows (`CON`, `PRN`, `AUX`, `NUL`, `COM1`…`COM9`, `LPT1`…`LPT9`) reciben el prefijo `asset_`; un resultado vacío se convierte en `asset`. El nombre base se limita a **100 caracteres** y siempre conserva la extensión de salida elegida.
 
 Antes de procesar se detectan, sin distinguir mayúsculas, las rutas que convergen en el mismo nombre normalizado. Las carpetas relativas se mantienen, por lo que nombres iguales en subcarpetas diferentes no colisionan. Dentro de una misma carpeta, los elementos se procesan de forma determinista y se aplica la política de archivos existentes: omitir, sobrescribir explícitamente, crear sufijos `_2`, `_3`… o comparar fechas. Toda colisión se contabiliza y detalla en el resumen, incluso si la política seleccionada permite completar la conversión.
+## Validación y avisos de imagen
+
+Antes de codificar cada imagen se ejecuta una validación no destructiva. Los avisos de nivel `information` y `warning` permiten continuar; `blocking_error` impide únicamente ese archivo y el resto del lote sigue. No se abre un diálogo por aviso: el resumen final agrega el total y ofrece el detalle con código, severidad y mensaje. Si se habilita el informe JSON, cada aviso incluye además sus detalles estructurados.
+
+La presencia de un canal alfa no implica transparencia: se inspecciona su valor mínimo y solo se considera significativa si algún píxel tiene opacidad inferior a 255. Las dimensiones se consideran extremas desde 16.000 píxeles en un eje y se advierte de presión de memoria desde 80.000.000 de píxeles. Se mantienen activos los límites de seguridad de Pillow; `DecompressionBombWarning` se registra y `DecompressionBombError` bloquea el archivo afectado.
+
+| Código | Severidad | Significado |
+| --- | --- | --- |
+| `ALPHA_CHANNEL_PRESENT` | information | Existe canal alfa, aunque puede ser totalmente opaco. |
+| `MEANINGFUL_TRANSPARENCY` | information | Hay píxeles realmente transparentes. |
+| `ALPHA_WILL_BE_FLATTENED` | warning | JPEG o BMP eliminará la transparencia. |
+| `SOURCE_DIMENSIONS_EXTREME` | warning | Algún eje alcanza el límite de dimensión extrema. |
+| `SOURCE_PIXEL_COUNT_EXCESSIVE` | warning | El total de píxeles puede ejercer presión de memoria. |
+| `CORRUPTED_IMAGE` | blocking_error | Pillow detectó datos dañados, truncados o no identificables. |
+| `EXTENSION_FORMAT_MISMATCH` | warning | La extensión no coincide con el formato detectado. |
+| `UNUSUAL_COLOR_MODE` | warning | El modo de color no pertenece al conjunto habitual compatible. |
+| `ICC_PROFILE_INVALID` | warning | El perfil ICC no se pudo interpretar. |
+| `ICC_PROFILE_DROPPED` | information | El perfil ICC no se copia a la salida. |
+| `ANIMATION_MAY_BE_LOST` | warning | Una animación se dirige a un formato tratado como estático. |
+| `OUTPUT_SIZE_REDUCTION_EXTREME` | warning | La salida es más de un 90 % menor; se recomienda revisión visual sin afirmar pérdida. |
+| `OUTPUT_SIZE_INCREASED` | information | La salida ocupa más que la fuente. |
+| `METADATA_DROPPED` | information | EXIF, comentarios o XMP detectados no se copian. |
+| `CMYK_CONVERTED_TO_RGB` | warning | Una fuente CMYK se transforma a RGB. |
+| `INVALID_DIMENSIONS` | blocking_error | La anchura o altura no es válida. |
+| `DECOMPRESSION_BOMB_WARNING` | warning | Pillow considera sospechoso el número de píxeles. |
+| `DECOMPRESSION_BOMB_ERROR` | blocking_error | Pillow bloqueó la imagen por riesgo de bomba de descompresión. |
+
+La validación no realiza comparación visual automática, puntuación perceptual ni afirma degradación sin evidencia objetiva. Los archivos fuente nunca se modifican.
 ## Informe JSON y SHA-256
 
 La opción **Generar informe JSON con SHA-256** está desactivada de forma predeterminada. Cuando se activa, el cálculo se realiza por bloques de 1 MiB en el hilo de trabajo, admite cancelación y nunca carga un archivo multimedia completo en memoria. El hash representa los bytes finales ya publicados; se comparan tamaño y fecha antes y después del cálculo y se añade un aviso si el archivo cambia durante ese intervalo.

@@ -151,6 +151,12 @@ class ImageBatchTests(unittest.TestCase):
                 ),
                 1,
             )
+            failed = next(
+                result
+                for result in completion["results"]
+                if result.status.value == "failed"
+            )
+            self.assertEqual(failed.warnings[0].code.value, "CORRUPTED_IMAGE")
 
     def test_normalized_batch_collision_uses_unique_policy_and_is_reported(
         self,

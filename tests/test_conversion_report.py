@@ -20,6 +20,7 @@ from conversion_report import (
 )
 from conversion_results import BatchSummary, FileResult, ResultStatus
 from png_a_webp import PanelConversor
+from image_validation import ImageWarning, ImageWarningCode, WarningSeverity
 
 
 class TrackingStream(BytesIO):
@@ -112,6 +113,38 @@ class ConversionReportTests(unittest.TestCase):
         serialized = json.dumps(report, ensure_ascii=False)
         self.assertNotIn(str(self.root), serialized)
         self.assertIn("aviso válido", serialized)
+
+    def test_typed_warning_code_is_serialized(self) -> None:
+        warning = ImageWarning(
+            ImageWarningCode.ALPHA_WILL_BE_FLATTENED,
+            WarningSeverity.WARNING,
+            "La transparencia se eliminará.",
+            self.root / "alpha.png",
+            {"targetFormat": "JPEG"},
+        )
+        result = FileResult(
+            self.root / "alpha.png",
+            self.output_root / "alpha.jpg",
+            ResultStatus.CONVERTED,
+            10,
+            5,
+            warnings=(warning,),
+        )
+        report = build_report(
+            BatchSummary(1, (result,), 1),
+            self.root,
+            self.output_root,
+            "image",
+            "jpeg",
+            {},
+            self.now,
+            self.now,
+        )
+        serialized = report["files"][0]["warnings"][0]
+        self.assertEqual(serialized["code"], "ALPHA_WILL_BE_FLATTENED")
+        self.assertEqual(serialized["severity"], "warning")
+        self.assertEqual(serialized["details"]["targetFormat"], "JPEG")
+        self.assertEqual(serialized["source"], "alpha.png")
 
     def test_mixed_batch_keeps_order_and_valid_errors(self) -> None:
         results = (

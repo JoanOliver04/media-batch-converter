@@ -121,6 +121,19 @@ class BatchSummaryTests(unittest.TestCase):
         self.assertEqual(summary.name_collisions, 1)
         self.assertIn("Colisiones de nombre detectadas: 1", summary_text(summary))
 
+    def test_file_warnings_are_aggregated(self) -> None:
+        warned = FileResult(
+            Path("a"),
+            Path("a.out"),
+            ResultStatus.CONVERTED,
+            10,
+            5,
+            warnings=("one", "two"),
+        )
+        summary = BatchSummary(1, (warned,), 1)
+        self.assertEqual(summary.warning_count, 2)
+        self.assertIn("Avisos de archivos: 2", summary_text(summary))
+
     def test_elapsed_and_human_readable_formatting(self) -> None:
         summary = BatchSummary(0, (), 62.4)
         self.assertEqual(format_duration(summary.elapsed_seconds), "01:02")

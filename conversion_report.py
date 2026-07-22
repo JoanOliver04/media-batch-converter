@@ -14,6 +14,7 @@ from threading import Event
 from typing import Any, BinaryIO
 
 from conversion_results import BatchSummary, FileResult
+from image_validation import ImageWarning
 
 
 SCHEMA_VERSION = 1
@@ -89,6 +90,26 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+def warning_entry(
+    warning: ImageWarning | str, source_root: Path, absolute_paths: bool
+) -> dict[str, Any]:
+    if isinstance(warning, ImageWarning):
+        return {
+            "code": warning.code.value,
+            "severity": warning.severity.value,
+            "message": warning.message,
+            "details": _json_safe(warning.details),
+            "source": _safe_path(warning.source, source_root, absolute_paths),
+        }
+    return {
+        "code": "OPERATION_WARNING",
+        "severity": "warning",
+        "message": str(warning),
+        "details": {},
+        "source": None,
+    }
+
+
 def file_entry(
     result: FileResult,
     source_root: Path,
@@ -101,7 +122,10 @@ def file_entry(
         "status": result.status.value,
         "originalBytes": result.original_bytes,
         "outputBytes": result.output_bytes,
-        "warnings": list(result.warnings),
+        "warnings": [
+            warning_entry(warning, source_root, absolute_paths)
+            for warning in result.warnings
+        ],
         "error": result.error_message,
     }
     optional = {

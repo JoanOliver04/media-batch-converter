@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
+from image_validation import ImageWarning
+
 
 class ResultStatus(StrEnum):
     CONVERTED = "converted"
@@ -25,7 +27,7 @@ class FileResult:
     encoder_mode: str | None = None
     output_action: str | None = None
     name_collision: bool = False
-    warnings: tuple[str, ...] = field(default_factory=tuple)
+    warnings: tuple[ImageWarning | str, ...] = field(default_factory=tuple)
     width: int | None = None
     height: int | None = None
     output_width: int | None = None
@@ -94,6 +96,10 @@ class BatchSummary:
     @property
     def name_collisions(self) -> int:
         return sum(result.name_collision for result in self.results)
+
+    @property
+    def warning_count(self) -> int:
+        return sum(len(result.warnings) for result in self.results)
 
     @property
     def original_bytes(self) -> int:
@@ -188,6 +194,7 @@ def summary_text(summary: BatchSummary) -> str:
             f"Sobrescritos: {summary.overwritten}",
             f"Renombrados por colisión: {summary.renamed}",
             f"Colisiones de nombre detectadas: {summary.name_collisions}",
+            f"Avisos de archivos: {summary.warning_count}",
             f"Fallidos: {summary.failed}",
             f"Tamaño original procesado: {format_bytes(summary.original_bytes)}",
             f"Tamaño de salida: {format_bytes(summary.output_bytes)}",

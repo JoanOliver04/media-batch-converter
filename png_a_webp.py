@@ -31,6 +31,11 @@ from output_policy import (
     commit_output,
     plan_output,
 )
+from image_validation import (
+    ImageValidationError,
+    output_size_warnings,
+    validate_image,
+)
 from image_resize import (
     ResizeConfig,
     ResizeMode,
@@ -1118,6 +1123,7 @@ class PanelImagen(PanelConversor):
             original_bytes = safe_file_size(archivo)
             plan = None
             collision = False
+            validation_warnings = ()
             try:
                 desired = desired_output_path(
                     destino, origen, archivo, extension, normalize
@@ -1144,6 +1150,12 @@ class PanelImagen(PanelConversor):
                     )
                     self.notificar_avance(indice, len(archivos), archivo.name)
                     continue
+                validation_warnings = tuple(validate_image(archivo, formato))
+                blocking = [
+                    warning for warning in validation_warnings if warning.blocking
+                ]
+                if blocking:
+                    raise ImageValidationError(list(validation_warnings))
                 with Image.open(archivo) as image:
                     oriented = ImageOps.exif_transpose(image)
                     source_width, source_height = oriented.size
@@ -1160,6 +1172,10 @@ class PanelImagen(PanelConversor):
                         resize_config,
                     )
                 commit_output(plan)
+                output_bytes = safe_file_size(plan.target)
+                size_warnings = tuple(
+                    output_size_warnings(archivo, original_bytes, output_bytes)
+                )
                 checksum, checksum_warnings = self.checksum_for_report(
                     plan.target, generate_report
                 )
@@ -1176,12 +1192,14 @@ class PanelImagen(PanelConversor):
                         plan.target,
                         ResultStatus.CONVERTED,
                         original_bytes,
-                        safe_file_size(plan.target),
+                        output_bytes,
                         processing_seconds=time.monotonic() - started,
                         encoder_mode=resolved_mode.value if resolved_mode else None,
                         output_action=plan.action.value,
                         name_collision=collision,
-                        warnings=checksum_warnings,
+                        warnings=validation_warnings
+                        + size_warnings
+                        + checksum_warnings,
                         width=source_width,
                         height=source_height,
                         output_width=output_width,
@@ -1192,6 +1210,8 @@ class PanelImagen(PanelConversor):
                 )
             except Exception as error:
                 cleanup_temporary(plan)
+                if isinstance(error, ImageValidationError):
+                    validation_warnings = error.warnings
                 results.append(
                     FileResult(
                         archivo,
@@ -1201,6 +1221,7 @@ class PanelImagen(PanelConversor):
                         error_message=str(error),
                         processing_seconds=time.monotonic() - started,
                         name_collision=collision,
+                        warnings=validation_warnings,
                     )
                 )
             self.notificar_avance(indice, len(archivos), archivo.name)
