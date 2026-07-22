@@ -11,6 +11,12 @@ from tkinter import BooleanVar, IntVar, StringVar, Tk, filedialog, messagebox
 from tkinter import ttk
 
 from batch_processing import discover_files, safe_output_directory
+from image_resize import (
+    ResizeConfig,
+    ResizeMode,
+    calculate_resize_dimensions,
+    validate_resize_config,
+)
 from presets import (
     CUSTOM_PRESET_ID,
     IMAGE_PRESETS,
@@ -55,7 +61,7 @@ def instalar_dependencias() -> None:
 
 instalar_dependencias()
 import imageio_ffmpeg  # noqa: E402
-from PIL import Image, ImageSequence  # noqa: E402
+from PIL import Image, ImageOps, ImageSequence  # noqa: E402
 
 
 FORMATOS_IMAGEN = {
@@ -203,6 +209,10 @@ class PanelConversor(ttk.Frame):
             )
 
     def iniciar(self) -> None:
+        validation_error = self.validar_inicio()
+        if validation_error:
+            messagebox.showerror("Ajustes no válidos", validation_error)
+            return
         elegido = Path(self.seleccion.get())
         if elegido.is_file() and elegido.suffix.lower() in self.extensiones:
             origen, archivos = elegido.parent, [elegido]
@@ -260,6 +270,9 @@ class PanelConversor(ttk.Frame):
         self.convertir_lote(
             origen, archivos, formato, calidad, errores_descubrimiento, opciones
         )
+
+    def validar_inicio(self) -> str | None:
+        return None
 
     def opciones_conversion(self) -> dict[str, object]:
         return {}
@@ -375,6 +388,21 @@ class PanelImagen(PanelConversor):
         self._preset_ids_by_display = {
             preset.display_name: preset.preset_id for preset in IMAGE_PRESETS
         }
+        self.resize_mode = StringVar(value=ResizeMode.ORIGINAL.value)
+        self.resize_width = StringVar(value="1024")
+        self.resize_height = StringVar(value="1024")
+        self.resize_percentage = StringVar(value="50")
+        self.never_upscale = BooleanVar(value=True)
+        self.resize_preview = StringVar(
+            value="Se conservarán las dimensiones originales."
+        )
+        self._resize_modes_by_display = {
+            "Conservar dimensiones": ResizeMode.ORIGINAL,
+            "Anchura máxima": ResizeMode.MAX_WIDTH,
+            "Altura máxima": ResizeMode.MAX_HEIGHT,
+            "Ajustar dentro de dimensiones": ResizeMode.FIT,
+            "Escalar por porcentaje": ResizeMode.PERCENT,
+        }
 
         ttk.Label(self.opciones_frame, text="Preset:").grid(
             row=1, column=0, padx=(0, 10), pady=(10, 0), sticky="w"
@@ -428,7 +456,143 @@ class PanelImagen(PanelConversor):
         self.selector_formato.bind(
             "<<ComboboxSelected>>", self.actualizar_controles_webp
         )
+        for row in range(7, 4, -1):
+            for widget in self.grid_slaves(row=row):
+                widget.grid_configure(row=row + 1)
+        self.marco_resize = ttk.LabelFrame(self, text="Redimensionar", padding=(10, 7))
+        self.marco_resize.grid(row=5, column=0, sticky="ew", pady=(0, 12))
+        ttk.Label(self.marco_resize, text="Modo:").grid(row=0, column=0, padx=(0, 8))
+        self.selector_resize = ttk.Combobox(
+            self.marco_resize,
+            values=tuple(self._resize_modes_by_display),
+            state="readonly",
+            width=29,
+        )
+        self.selector_resize.set("Conservar dimensiones")
+        self.selector_resize.grid(row=0, column=1, padx=(0, 14), sticky="w")
+        self.label_width = ttk.Label(self.marco_resize, text="Anchura (px):")
+        self.entry_width = ttk.Entry(
+            self.marco_resize, textvariable=self.resize_width, width=9
+        )
+        self.label_height = ttk.Label(self.marco_resize, text="Altura (px):")
+        self.entry_height = ttk.Entry(
+            self.marco_resize, textvariable=self.resize_height, width=9
+        )
+        self.label_percent = ttk.Label(self.marco_resize, text="Porcentaje (%):")
+        self.entry_percent = ttk.Entry(
+            self.marco_resize, textvariable=self.resize_percentage, width=9
+        )
+        self.never_upscale_check = ttk.Checkbutton(
+            self.marco_resize,
+            text="Nunca ampliar imágenes pequeñas",
+            variable=self.never_upscale,
+        )
+        self.never_upscale_check.grid(row=1, column=4, padx=(12, 0), sticky="w")
+        ttk.Label(
+            self.marco_resize, textvariable=self.resize_preview, wraplength=700
+        ).grid(row=2, column=0, columnspan=6, sticky="w", pady=(6, 0))
+        self.selector_resize.bind("<<ComboboxSelected>>", self.resize_mode_changed)
+        for variable in (
+            self.resize_width,
+            self.resize_height,
+            self.resize_percentage,
+            self.never_upscale,
+        ):
+            variable.trace_add("write", self.resize_settings_changed)
+        self.actualizar_controles_resize()
         self.aplicar_preset_id(self.settings_store.load_last_image_preset())
+
+    def resize_mode_changed(self, _event=None) -> None:
+        self.resize_mode.set(
+            self._resize_modes_by_display.get(
+                self.selector_resize.get(), ResizeMode.ORIGINAL
+            ).value
+        )
+        self.actualizar_controles_resize()
+        self.ajustes_modificados()
+
+    def resize_settings_changed(self, *_args) -> None:
+        if hasattr(self, "marco_resize"):
+            self.actualizar_preview_resize()
+            self.ajustes_modificados()
+
+    def current_resize_config(self) -> ResizeConfig:
+        def integer_or_none(value: str) -> int | None:
+            try:
+                return int(value.strip())
+            except ValueError:
+                return None
+
+        def float_or_none(value: str) -> float | None:
+            try:
+                return float(value.strip().replace(",", "."))
+            except ValueError:
+                return None
+
+        return ResizeConfig(
+            mode=ResizeMode(self.resize_mode.get()),
+            width=integer_or_none(self.resize_width.get()),
+            height=integer_or_none(self.resize_height.get()),
+            percentage=float_or_none(self.resize_percentage.get()),
+            never_upscale=self.never_upscale.get(),
+        )
+
+    def actualizar_controles_resize(self) -> None:
+        for widget in (
+            self.label_width,
+            self.entry_width,
+            self.label_height,
+            self.entry_height,
+            self.label_percent,
+            self.entry_percent,
+        ):
+            widget.grid_remove()
+        mode = ResizeMode(self.resize_mode.get())
+        if mode in {ResizeMode.MAX_WIDTH, ResizeMode.FIT}:
+            self.label_width.grid(row=1, column=0, pady=(7, 0), sticky="w")
+            self.entry_width.grid(row=1, column=1, pady=(7, 0), sticky="w")
+        if mode in {ResizeMode.MAX_HEIGHT, ResizeMode.FIT}:
+            self.label_height.grid(
+                row=1, column=2, padx=(12, 0), pady=(7, 0), sticky="w"
+            )
+            self.entry_height.grid(row=1, column=3, pady=(7, 0), sticky="w")
+        if mode is ResizeMode.PERCENT:
+            self.label_percent.grid(row=1, column=0, pady=(7, 0), sticky="w")
+            self.entry_percent.grid(row=1, column=1, pady=(7, 0), sticky="w")
+        self.actualizar_preview_resize()
+
+    def actualizar_preview_resize(self) -> None:
+        selected = Path(self.seleccion.get())
+        if selected.is_dir():
+            self.resize_preview.set(
+                "El tamaño se calculará individualmente para cada imagen del lote."
+            )
+            return
+        if not selected.is_file():
+            self.resize_preview.set(
+                "Selecciona una imagen para estimar el tamaño final."
+            )
+            return
+        try:
+            config = self.current_resize_config()
+            validate_resize_config(config)
+            with Image.open(selected) as image:
+                oriented = ImageOps.exif_transpose(image)
+                target = calculate_resize_dimensions(*oriented.size, config)
+                self.resize_preview.set(
+                    f"Original orientada: {oriented.width} × {oriented.height}. "
+                    f"Salida estimada: {target[0]} × {target[1]}."
+                )
+        except (OSError, ValueError) as error:
+            self.resize_preview.set(f"Ajuste pendiente: {error}")
+
+    def seleccionar_archivo(self) -> None:
+        super().seleccionar_archivo()
+        self.actualizar_preview_resize()
+
+    def seleccionar_carpeta(self) -> None:
+        super().seleccionar_carpeta()
+        self.actualizar_preview_resize()
 
     def aplicar_preset_seleccionado(self, _event=None) -> None:
         preset_id = self._preset_ids_by_display.get(
@@ -452,6 +616,13 @@ class PanelImagen(PanelConversor):
                     self.calidad.set(preset.quality)
                 if preset.webp_mode is not None:
                     self.webp_mode.set(preset.webp_mode.value)
+                self.resize_mode.set(preset.resize_mode)
+                resize_label = next(
+                    label
+                    for label, mode in self._resize_modes_by_display.items()
+                    if mode.value == preset.resize_mode
+                )
+                self.selector_resize.set(resize_label)
                 selected_id = preset.preset_id
         finally:
             self._applying_preset = False
@@ -467,7 +638,11 @@ class PanelImagen(PanelConversor):
         current_id = self._preset_ids_by_display.get(self.preset_display.get())
         current = preset_by_id(current_id)
         if current and preset_matches(
-            current, self.formato.get(), self.calidad.get(), self.webp_mode.get()
+            current,
+            self.formato.get(),
+            self.calidad.get(),
+            self.webp_mode.get(),
+            self.resize_mode.get(),
         ):
             return
         self.preset_display.set("Personalizado")
@@ -491,13 +666,32 @@ class PanelImagen(PanelConversor):
             state="normal" if calidad_aplicable and not self._bloqueado else "disabled"
         )
 
+    def validar_inicio(self) -> str | None:
+        try:
+            validate_resize_config(self.current_resize_config())
+        except ValueError as error:
+            return str(error)
+        return None
+
     def opciones_conversion(self) -> dict[str, object]:
-        return {"webp_mode": self.webp_mode.get()}
+        return {
+            "webp_mode": self.webp_mode.get(),
+            "resize_config": self.current_resize_config(),
+        }
 
     def bloquear(self, bloqueado: bool) -> None:
         self._bloqueado = bloqueado
         super().bloquear(bloqueado)
         self.selector_preset.configure(state="disabled" if bloqueado else "readonly")
+        self.selector_resize.configure(state="disabled" if bloqueado else "readonly")
+        state = "disabled" if bloqueado else "normal"
+        for widget in (
+            self.entry_width,
+            self.entry_height,
+            self.entry_percent,
+            self.never_upscale_check,
+        ):
+            widget.configure(state=state)
         self.actualizar_controles_webp()
 
     @staticmethod
@@ -527,6 +721,16 @@ class PanelImagen(PanelConversor):
             save_options = {"optimize": True}
         return convertida, save_options, resolved_mode
 
+    @staticmethod
+    def resize_frame(
+        image: Image.Image, config: ResizeConfig, target: tuple[int, int] | None = None
+    ) -> tuple[Image.Image, tuple[int, int]]:
+        oriented = ImageOps.exif_transpose(image)
+        target = target or calculate_resize_dimensions(*oriented.size, config)
+        if oriented.size == target:
+            return oriented, target
+        return oriented.resize(target, Image.Resampling.LANCZOS), target
+
     def guardar_imagen(
         self,
         imagen: Image.Image,
@@ -535,40 +739,49 @@ class PanelImagen(PanelConversor):
         calidad: int,
         source: Path | str | None = None,
         requested_webp_mode: WebPMode | str = WebPMode.AUTOMATIC,
+        resize_config: ResizeConfig | None = None,
     ) -> WebPMode | None:
         source = source or salida
+        resize_config = resize_config or ResizeConfig()
         es_animada = getattr(imagen, "is_animated", False) and formato in {
             "GIF",
             "WEBP",
         }
         if not es_animada:
             imagen.seek(0)
+            resized, _target = self.resize_frame(imagen, resize_config)
             convertida, save_options, resolved_mode = self.preparar_estatica(
-                imagen, formato, calidad, source, requested_webp_mode
+                resized, formato, calidad, source, requested_webp_mode
             )
             convertida.save(salida, format=formato, **save_options)
             return resolved_mode
 
-        fotogramas = [
-            fotograma.convert("RGBA") for fotograma in ImageSequence.Iterator(imagen)
-        ]
-        duraciones = [
-            fotograma.info.get("duration", imagen.info.get("duration", 100))
-            for fotograma in ImageSequence.Iterator(imagen)
-        ]
-        save_options: dict[str, object] = {
-            "save_all": True,
-            "append_images": fotogramas[1:],
-            "duration": duraciones,
-            "loop": imagen.info.get("loop", 0),
-        }
         resolved_mode: WebPMode | None = None
         if formato == "WEBP":
             resolved_mode = resolve_webp_mode(requested_webp_mode, imagen, source)
+        frames: list[Image.Image] = []
+        durations: list[int] = []
+        target: tuple[int, int] | None = None
+        for frame in ImageSequence.Iterator(imagen):
+            resized, target = self.resize_frame(
+                frame.convert("RGBA"), resize_config, target
+            )
+            frames.append(resized.convert("RGBA"))
+            durations.append(
+                frame.info.get("duration", imagen.info.get("duration", 100))
+            )
+
+        save_options: dict[str, object] = {
+            "save_all": True,
+            "append_images": frames[1:],
+            "duration": durations,
+            "loop": imagen.info.get("loop", 0),
+        }
+        if formato == "WEBP":
             save_options.update(webp_save_options(resolved_mode, calidad))
         else:
             save_options["optimize"] = True
-        fotogramas[0].save(salida, format=formato, **save_options)
+        frames[0].save(salida, format=formato, **save_options)
         return resolved_mode
 
     def completar(self, destino: Path, exitos: int, errores: list[str]) -> None:
@@ -596,6 +809,7 @@ class PanelImagen(PanelConversor):
     ) -> None:
         formato, extension = FORMATOS_IMAGEN[elegido]
         requested_mode = (opciones or {}).get("webp_mode", WebPMode.AUTOMATIC.value)
+        resize_config = (opciones or {}).get("resize_config", ResizeConfig())
         destino = origen / f"convertidos_{elegido.lower()}"
         errores = list(errores_iniciales or [])
         exitos = 0
@@ -617,7 +831,13 @@ class PanelImagen(PanelConversor):
                 salida = ruta_salida_unica(carpeta_salida, archivo.stem, extension)
                 with Image.open(archivo) as imagen:
                     resolved_mode = self.guardar_imagen(
-                        imagen, salida, formato, calidad, archivo, requested_mode
+                        imagen,
+                        salida,
+                        formato,
+                        calidad,
+                        archivo,
+                        requested_mode,
+                        resize_config,
                     )
                 if resolved_mode is not None:
                     self.modos_seleccionados[archivo] = resolved_mode
@@ -862,8 +1082,8 @@ class PanelVideo(PanelAudio):
 class ConversorApp:
     def __init__(self, raiz: Tk) -> None:
         raiz.title("Conversor multimedia")
-        raiz.geometry("820x520")
-        raiz.minsize(620, 500)
+        raiz.geometry("850x650")
+        raiz.minsize(620, 600)
         pestañas = ttk.Notebook(raiz)
         pestañas.pack(fill="both", expand=True)
         pestañas.add(PanelImagen(pestañas, raiz), text=" Imágenes ")

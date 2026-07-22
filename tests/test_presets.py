@@ -118,10 +118,21 @@ class PresetUiTests(unittest.TestCase):
         self.panel.aplicar_preset_id("missing")
         self.assertEqual(self.panel.preset_display.get(), "Personalizado")
 
+    def test_resize_change_uses_relevant_fields_and_marks_custom(self) -> None:
+        self.panel.aplicar_preset_id("thumbnail")
+        self.panel.selector_resize.set("Anchura máxima")
+        self.panel.resize_mode_changed()
+        self.assertTrue(self.panel.entry_width.winfo_manager())
+        self.assertFalse(self.panel.entry_height.winfo_manager())
+        self.assertEqual(self.panel.preset_display.get(), "Personalizado")
+        self.panel.resize_width.set("invalid")
+        self.assertIsNotNone(self.panel.validar_inicio())
+
     def test_preset_options_apply_to_any_conversion_scope(self) -> None:
         self.panel.aplicar_preset_id("high_quality_illustration")
-        expected = {"webp_mode": "lossy"}
-        self.assertEqual(self.panel.opciones_conversion(), expected)
+        options = self.panel.opciones_conversion()
+        self.assertEqual(options["webp_mode"], "lossy")
+        self.assertEqual(options["resize_config"].mode.value, "original")
 
 
 if __name__ == "__main__":

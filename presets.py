@@ -97,7 +97,11 @@ def normalized_preset_id(preset_id: str | None) -> str:
 
 
 def preset_matches(
-    preset: ConversionPreset, output_format: str, quality: int, webp_mode: str
+    preset: ConversionPreset,
+    output_format: str,
+    quality: int,
+    webp_mode: str,
+    resize_mode: str = "original",
 ) -> bool:
     if preset.output_format != output_format:
         return False
@@ -105,7 +109,7 @@ def preset_matches(
         return False
     if preset.webp_mode is not None and preset.webp_mode.value != webp_mode:
         return False
-    return True
+    return preset.resize_mode == resize_mode
 
 
 def default_settings_path() -> Path:

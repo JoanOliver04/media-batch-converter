@@ -52,3 +52,14 @@ Los presets aplican formato, modo WebP y calidad de una sola vez. Después se pu
 | Archivo sin pérdida | PNG | Sin pérdida | No aplica | Conservación y archivo |
 
 Todos los presets mantienen las dimensiones originales. El modelo reserva opciones de redimensionado y de audio/vídeo para ampliaciones posteriores, pero no aplica silenciosamente funciones todavía no disponibles.
+## Redimensionado de imágenes
+
+El redimensionado se realiza después de corregir la orientación EXIF y antes de codificar el formato final. Utiliza LANCZOS, conserva la transparencia y nunca recorta ni deforma.
+
+- **Conservar dimensiones:** no remuestrea la imagen.
+- **Anchura máxima:** limita la anchura y calcula proporcionalmente la altura.
+- **Altura máxima:** limita la altura y calcula proporcionalmente la anchura.
+- **Ajustar dentro de dimensiones:** encaja la imagen en una caja de anchura × altura.
+- **Escalar por porcentaje:** aplica un porcentaje proporcional. Con **Nunca ampliar imágenes pequeñas** activo, el máximo efectivo es 100%; al desactivarlo se permite una ampliación explícita y limitada.
+
+Para un archivo individual se muestra una estimación basada en sus dimensiones después de orientar. En lotes, cada archivo se calcula individualmente. Las animaciones GIF/WebP redimensionan todos los fotogramas al mismo tamaño objetivo. No se aplican recorte, deformación ni ampliación mediante IA.
