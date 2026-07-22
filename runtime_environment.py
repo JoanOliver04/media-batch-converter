@@ -12,9 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app_logging import log_path
+from version import APP_NAME, APP_VERSION
 
-
-APP_VERSION = "1.0.0"
 INSTALL_COMMAND = "python -m pip install -r requirements.txt"
 
 
@@ -131,7 +130,7 @@ def diagnostics_text(ffmpeg: FFmpegInfo | None = None) -> str:
         imageio_version = "No disponible (se puede usar FFmpeg incluido o del sistema)"
     ffmpeg = ffmpeg if ffmpeg is not None else resolve_ffmpeg()
     lines = [
-        f"Aplicación: Media Batch Converter {APP_VERSION}",
+        f"Aplicación: {APP_NAME} {APP_VERSION}",
         f"Sistema: {platform.platform()}",
         f"Python: {platform.python_version()}{' (empaquetado)' if getattr(sys, 'frozen', False) else ''}",
         f"Pillow: {pillow}",

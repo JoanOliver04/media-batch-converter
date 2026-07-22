@@ -87,6 +87,7 @@ from presets import (
 )
 from runtime_environment import diagnostics_text, resolve_ffmpeg
 from summary_dialog import show_summary
+from version import APP_NAME
 from video_encoding import (
     ProgressLimiter,
     VideoSettings,
@@ -194,7 +195,7 @@ class PanelConversor(ttk.Frame):
             value=self.settings_store.load_normalize_filenames()
         )
         self.output_name_preview = StringVar(
-            value="Ejemplo: Character Happy.png → character_happy.webp"
+            value="Ejemplo: Sample Image.png → sample_image.webp"
         )
         self.generate_report = BooleanVar(
             value=self.settings_store.load_generate_report()
@@ -377,7 +378,7 @@ class PanelConversor(ttk.Frame):
             self.output_name_preview.set(f"Nombre de salida: {name}")
         else:
             self.output_name_preview.set(
-                "Ejemplo: Character Happy.png → character_happy.webp"
+                "Ejemplo: Sample Image.png → sample_image.webp"
             )
 
     def report_settings_changed(self, _event=None) -> None:
@@ -2421,7 +2422,7 @@ class DiagnosticsPanel(ttk.Frame):
 
 class ConversorApp:
     def __init__(self, raiz: Tk) -> None:
-        raiz.title("Conversor multimedia")
+        raiz.title(APP_NAME)
         raiz.geometry("900x780")
         raiz.minsize(760, 740)
         pestañas = ttk.Notebook(raiz)

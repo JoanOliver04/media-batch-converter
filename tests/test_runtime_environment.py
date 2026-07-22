@@ -99,7 +99,7 @@ class RuntimeEnvironmentTests(unittest.TestCase):
             Path.home() / "tools" / "ffmpeg.exe", "incluido", "ffmpeg 7.1"
         )
         report = diagnostics_text(info)
-        self.assertIn("Media Batch Converter 1.0.0", report)
+        self.assertIn("Media Batch Converter 0.1.0", report)
         self.assertIn("Pillow:", report)
         self.assertIn("imageio-ffmpeg:", report)
         self.assertIn("ffmpeg 7.1", report)

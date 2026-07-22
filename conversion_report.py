@@ -15,10 +15,11 @@ from typing import Any, BinaryIO
 
 from conversion_results import BatchSummary, FileResult
 from image_validation import ImageWarning
+from version import APP_VERSION
 
 
 SCHEMA_VERSION = 1
-APPLICATION_VERSION = "1.0.0"
+APPLICATION_VERSION = APP_VERSION
 HASH_CHUNK_SIZE = 1024 * 1024
 
 

@@ -62,7 +62,12 @@ class PresetModelTests(unittest.TestCase):
 
     def test_public_data_contains_only_generic_values(self) -> None:
         serialized = json.dumps(public_preset_data(), ensure_ascii=False).casefold()
-        for forbidden in ("joanoliver", "c:\\proyectos", "secret", "confidential"):
+        for forbidden in (
+            "private_project",
+            "c:\\users\\example",
+            "secret",
+            "confidential",
+        ):
             self.assertNotIn(forbidden, serialized)
 
 
