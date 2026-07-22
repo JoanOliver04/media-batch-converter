@@ -185,6 +185,28 @@ El redimensionado se realiza después de corregir la orientación EXIF y antes d
 
 Para un archivo individual se muestra una estimación basada en sus dimensiones después de orientar. En lotes, cada archivo se calcula individualmente. Las animaciones GIF/WebP redimensionan todos los fotogramas al mismo tamaño objetivo. No se aplican recorte, deformación ni ampliación mediante IA.
 
+## Controles y presets de vídeo
+
+La pestaña **Vídeo** permite fijar resolución, límite de FPS, códecs de vídeo y audio, calidad CRF, eliminación explícita de audio, color de bandas y un tamaño máximo meramente orientativo. El tamaño real siempre aparece en el resumen final; con CRF no puede prometerse un tamaño exacto porque el bitrate depende del contenido. No se activa aceleración por hardware de forma automática.
+
+| Preset | Salida | Resolución | Aspecto | FPS | Calidad |
+| --- | --- | --- | --- | ---: | ---: |
+| Uso interno 720p | MP4, H.264/AAC | Máx. 1280 × 720 | Conservar | Máx. 30 | CRF 23 |
+| Alta calidad 1080p | MP4, H.264/AAC | Máx. 1920 × 1080 | Conservar | Máx. 30 | CRF 21 |
+| Social vertical | MP4, H.264/AAC | 1080 × 1920 | Ajustar con bandas | 30 | CRF 22 |
+| Tráiler horizontal | MP4, H.264/AAC | Máx. 1920 × 1080 | Conservar | Máx. 30 | CRF 20 |
+| WebM VP9 | WebM, VP9/Opus | Conservar origen | Conservar | Conservar | CRF 30 |
+
+Los modos de aspecto son:
+
+- **Conservar proporción:** reduce para caber dentro del límite sin ampliar ni recortar; corrige dimensiones impares para los códecs que lo requieren.
+- **Ajustar con bandas:** escala proporcionalmente y rellena el lienzo con el color elegido, negro por defecto.
+- **Rellenar y recortar:** escala hasta cubrir el lienzo y recorta el exceso desde el centro. Solo se aplica cuando se elige de forma explícita.
+- **Estirar:** fuerza exactamente la resolución solicitada y puede deformar la imagen.
+
+MP4 y MOV usan `+faststart`; H.264 usa `yuv420p` por compatibilidad amplia. La opción **Eliminar audio** genera `-an`, mientras los vídeos sin pista de audio se procesan normalmente. Se conservan los metadatos compatibles mediante una asignación explícita. El progreso durante cada vídeo se calcula con su duración y los tiempos comunicados por FFmpeg, y la cancelación termina el proceso y elimina la salida temporal.
+
+CRF representa calidad constante: un número menor ofrece más calidad y normalmente archivos mayores. Un bitrate objetivo busca un tamaño más predecible, pero estos presets usan CRF para adaptarse mejor a la complejidad visual; el campo de tamaño máximo es solo una referencia y no altera silenciosamente la codificación.
 ## Resumen y comparación de tamaño
 
 Al finalizar se abre un resumen seleccionable con archivos descubiertos y procesados, conversiones correctas, omisiones, fallos, tamaños originales y finales, ahorro o aumento, porcentaje y tiempo transcurrido. **Copiar resumen** envía el contenido al portapapeles y los detalles de fallos se limitan inicialmente para mantener ágil la ventana en lotes grandes.

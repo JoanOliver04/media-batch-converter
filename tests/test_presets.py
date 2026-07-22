@@ -18,7 +18,7 @@ from presets import (
     preset_matches,
     public_preset_data,
 )
-from png_a_webp import PanelAudio, PanelImagen
+from png_a_webp import PanelAudio, PanelImagen, PanelVideo
 from webp_encoding import WebPMode
 
 
@@ -100,6 +100,10 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(store.load_last_audio_preset(), "voice_dialogue")
             store.save_last_audio_preset("unknown")
             self.assertEqual(store.load_last_audio_preset(), CUSTOM_PRESET_ID)
+            store.save_last_video_preset("webm_vp9")
+            self.assertEqual(store.load_last_video_preset(), "webm_vp9")
+            store.save_last_video_preset("unknown")
+            self.assertEqual(store.load_last_video_preset(), CUSTOM_PRESET_ID)
 
             store.save_output_policy("invalid")
             self.assertEqual(store.load_output_policy(), "skip")
@@ -175,6 +179,29 @@ class PresetUiTests(unittest.TestCase):
         self.assertEqual(settings.codec, "pcm_s24le")
         self.assertIsNone(settings.channels)
         self.assertIsNone(settings.bitrate_kbps)
+
+    def test_video_preset_applies_and_manual_change_is_custom(self) -> None:
+        panel = PanelVideo(self.root, self.root)
+        panel.apply_video_preset_id("vertical_social")
+        self.assertEqual(panel.formato.get(), "MP4")
+        self.assertEqual(
+            (panel.video_width.get(), panel.video_height.get()), ("1080", "1920")
+        )
+        self.assertEqual(panel.video_aspect.get(), "Ajustar con bandas")
+        self.assertEqual(panel.video_codec.get(), "libx264")
+        self.assertEqual(panel.video_audio_codec.get(), "aac")
+
+        panel.video_aspect.set("Rellenar y recortar")
+        self.assertEqual(panel.video_preset_display.get(), "Personalizado")
+        self.assertEqual(panel.current_video_settings().aspect_mode, "fill")
+
+    def test_video_stretch_warning_and_audio_removal_are_explicit(self) -> None:
+        panel = PanelVideo(self.root, self.root)
+        self.assertTrue(any("deformar" in label for label in panel.ASPECT_LABELS))
+        panel.apply_video_preset_id("in_app_720p")
+        panel.video_remove_audio.set(True)
+        panel.video_settings_changed()
+        self.assertTrue(panel.current_video_settings().remove_audio)
 
     def test_report_defaults_are_private_and_optional(self) -> None:
         self.assertFalse(self.panel.generate_report.get())

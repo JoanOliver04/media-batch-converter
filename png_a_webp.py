@@ -68,12 +68,20 @@ from presets import (
     AUDIO_PRESETS,
     CUSTOM_PRESET_ID,
     IMAGE_PRESETS,
+    VIDEO_PRESETS,
     AudioSettings,
     SettingsStore,
     preset_by_id,
     preset_matches,
 )
 from summary_dialog import show_summary
+from video_encoding import (
+    VideoSettings,
+    build_video_args,
+    parse_progress_seconds,
+    probe_media,
+    validate_video_settings,
+)
 from webp_encoding import (
     WebPMode,
     resolve_webp_mode,
@@ -1766,22 +1774,35 @@ class PanelAudio(PanelConversor):
         self.audio_channel_selector.configure(state=selector_state)
         self.audio_bitrate_entry.configure(state="disabled" if bloqueado else "normal")
 
-    def ejecutar_ffmpeg(self, comando: list[str]) -> None:
+    def ejecutar_ffmpeg(
+        self,
+        comando: list[str],
+        progress_callback=None,
+    ) -> None:
         flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         process = subprocess.Popen(
             comando,
-            stdout=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
             creationflags=flags,
         )
         self.proceso_activo = process
+        stderr_lines: list[str] = []
         try:
-            _, stderr = process.communicate()
+            if process.stderr is not None:
+                for line in process.stderr:
+                    stderr_lines.append(line.rstrip())
+                    if len(stderr_lines) > 200:
+                        del stderr_lines[:50]
+                    seconds = parse_progress_seconds(line)
+                    if seconds is not None and progress_callback is not None:
+                        progress_callback(seconds)
+            process.wait()
         finally:
             self.proceso_activo = None
         if process.returncode:
-            detail = stderr.strip().splitlines()
+            detail = [line for line in stderr_lines if line]
             raise RuntimeError(
                 detail[-1] if detail else "FFmpeg no pudo completar la conversión."
             )
@@ -1796,7 +1817,7 @@ class PanelAudio(PanelConversor):
         errores_iniciales: list[str],
         opciones: dict[str, object] | None,
         audio_only: bool,
-        required_encoder: str | None = None,
+        required_encoder: str | tuple[str, ...] | None = None,
     ) -> None:
         destino = origen / f"convertidos_{formato.lower()}"
         policy = OutputPolicy((opciones or {}).get("output_policy", OutputPolicy.SKIP))
@@ -1811,11 +1832,21 @@ class PanelAudio(PanelConversor):
         except Exception as error:
             self.raiz.after(0, self.fallar, str(error))
             return
-        if required_encoder and not encoder_available(ffmpeg, required_encoder):
+        required_encoders = (
+            (required_encoder,)
+            if isinstance(required_encoder, str)
+            else required_encoder or ()
+        )
+        missing_encoders = [
+            codec for codec in required_encoders if not encoder_available(ffmpeg, codec)
+        ]
+        if missing_encoders:
             self.raiz.after(
                 0,
                 self.fallar,
-                f"FFmpeg no incluye el codificador requerido: {required_encoder}.",
+                "FFmpeg no incluye los codificadores requeridos: "
+                + ", ".join(missing_encoders)
+                + ".",
             )
             return
 
@@ -1866,10 +1897,23 @@ class PanelAudio(PanelConversor):
                     self.notificar_avance(index, len(archivos), source.name)
                     continue
                 command = [ffmpeg, "-y", "-i", str(source), "-map_metadata", "0"]
+                duration = None
                 if audio_only:
                     command.append("-vn")
+                else:
+                    duration, _has_audio = probe_media(ffmpeg, source)
+                    command.extend(("-progress", "pipe:2", "-nostats"))
                 command.extend((*codec_args, str(plan.temporary)))
-                self.ejecutar_ffmpeg(command)
+
+                def update_media_progress(seconds: float) -> None:
+                    if duration and duration > 0:
+                        value = (index - 1) + min(1.0, max(0.0, seconds / duration))
+                        self.raiz.after(0, self.progreso.configure, {"value": value})
+
+                if audio_only:
+                    self.ejecutar_ffmpeg(command)
+                else:
+                    self.ejecutar_ffmpeg(command, update_media_progress)
                 commit_output(plan)
                 checksum, checksum_warnings = self.checksum_for_report(
                     plan.target, generate_report
@@ -1950,11 +1994,284 @@ class PanelAudio(PanelConversor):
 
 class PanelVideo(PanelAudio):
     MEDIA_TYPE = "video"
+    ASPECT_LABELS = {
+        "Conservar proporción": "preserve",
+        "Ajustar con bandas": "fit",
+        "Rellenar y recortar": "fill",
+        "Estirar (puede deformar)": "stretch",
+    }
+    CODECS = {
+        "MP4": ("libx264", "aac"),
+        "MOV": ("libx264", "aac"),
+        "MKV": ("libx264", "aac"),
+        "WebM": ("libvpx-vp9", "libopus"),
+        "AVI": ("mpeg4", "libmp3lame"),
+    }
 
     def __init__(self, parent, raiz: Tk) -> None:
         PanelConversor.__init__(
             self, parent, raiz, "Conversor de vídeo", EXT_VIDEO, FORMATOS_VIDEO
         )
+        self._applying_video_preset = False
+        self.video_preset_display = StringVar(value="Personalizado")
+        self.video_preset_description = StringVar(value="Ajustes de vídeo manuales.")
+        self.video_width = StringVar(value="")
+        self.video_height = StringVar(value="")
+        self.video_fps = StringVar(value="30")
+        self.video_aspect = StringVar(value="Conservar proporción")
+        self.video_codec = StringVar(value="libx264")
+        self.video_audio_codec = StringVar(value="aac")
+        self.video_remove_audio = BooleanVar(value=False)
+        self.video_background = StringVar(value="black")
+        self.video_max_size = StringVar(value="")
+        self.video_size_guidance = StringVar(
+            value="El tamaño final se mostrará en el resumen; CRF no permite predecirlo con exactitud."
+        )
+        self._video_preset_ids = {
+            preset.display_name: preset.preset_id for preset in VIDEO_PRESETS
+        }
+
+        ttk.Label(self.opciones_frame, text="Preset de vídeo:").grid(
+            row=1, column=0, padx=(0, 10), pady=(10, 0), sticky="w"
+        )
+        self.video_preset_selector = ttk.Combobox(
+            self.opciones_frame,
+            textvariable=self.video_preset_display,
+            values=("Personalizado", *(p.display_name for p in VIDEO_PRESETS)),
+            state="readonly",
+            width=25,
+        )
+        self.video_preset_selector.grid(row=1, column=1, pady=(10, 0), sticky="w")
+        ttk.Label(
+            self.opciones_frame,
+            textvariable=self.video_preset_description,
+            wraplength=390,
+        ).grid(row=1, column=2, columnspan=3, pady=(10, 0), sticky="w")
+        self.video_preset_selector.bind(
+            "<<ComboboxSelected>>", self.apply_selected_video_preset
+        )
+
+        for row in range(6, 3, -1):
+            for widget in self.grid_slaves(row=row):
+                widget.grid_configure(row=row + 1)
+        self.video_advanced = ttk.LabelFrame(
+            self, text="Ajustes de vídeo", padding=(10, 7)
+        )
+        self.video_advanced.grid(row=4, column=0, sticky="ew", pady=(0, 10))
+        ttk.Label(self.video_advanced, text="Resolución:").grid(row=0, column=0)
+        self.video_width_entry = ttk.Entry(
+            self.video_advanced, textvariable=self.video_width, width=6
+        )
+        self.video_width_entry.grid(row=0, column=1, padx=(6, 2))
+        ttk.Label(self.video_advanced, text="×").grid(row=0, column=2)
+        self.video_height_entry = ttk.Entry(
+            self.video_advanced, textvariable=self.video_height, width=6
+        )
+        self.video_height_entry.grid(row=0, column=3, padx=(2, 14))
+        ttk.Label(self.video_advanced, text="FPS máx.:").grid(row=0, column=4)
+        self.video_fps_entry = ttk.Entry(
+            self.video_advanced, textvariable=self.video_fps, width=5
+        )
+        self.video_fps_entry.grid(row=0, column=5, padx=(6, 14))
+        self.video_aspect_selector = ttk.Combobox(
+            self.video_advanced,
+            textvariable=self.video_aspect,
+            values=tuple(self.ASPECT_LABELS),
+            state="readonly",
+            width=24,
+        )
+        self.video_aspect_selector.grid(row=0, column=6)
+
+        ttk.Label(self.video_advanced, text="Vídeo:").grid(row=1, column=0, pady=(7, 0))
+        self.video_codec_selector = ttk.Combobox(
+            self.video_advanced,
+            textvariable=self.video_codec,
+            values=("libx264", "libvpx-vp9", "mpeg4"),
+            state="readonly",
+            width=12,
+        )
+        self.video_codec_selector.grid(row=1, column=1, columnspan=2, pady=(7, 0))
+        ttk.Label(self.video_advanced, text="Audio:").grid(row=1, column=3, pady=(7, 0))
+        self.video_audio_selector = ttk.Combobox(
+            self.video_advanced,
+            textvariable=self.video_audio_codec,
+            values=("aac", "libopus", "libmp3lame"),
+            state="readonly",
+            width=12,
+        )
+        self.video_audio_selector.grid(row=1, column=4, columnspan=2, pady=(7, 0))
+        self.video_audio_check = ttk.Checkbutton(
+            self.video_advanced,
+            text="Eliminar audio",
+            variable=self.video_remove_audio,
+            command=self.video_settings_changed,
+        )
+        self.video_audio_check.grid(row=1, column=6, pady=(7, 0), sticky="w")
+        ttk.Label(self.video_advanced, text="Color bandas:").grid(
+            row=2, column=0, pady=(7, 0)
+        )
+        self.video_background_entry = ttk.Entry(
+            self.video_advanced, textvariable=self.video_background, width=10
+        )
+        self.video_background_entry.grid(row=2, column=1, columnspan=2, pady=(7, 0))
+        ttk.Label(self.video_advanced, text="Máx. MB (orientativo):").grid(
+            row=2, column=3, columnspan=2, pady=(7, 0)
+        )
+        self.video_max_size_entry = ttk.Entry(
+            self.video_advanced, textvariable=self.video_max_size, width=7
+        )
+        self.video_max_size_entry.grid(row=2, column=5, pady=(7, 0))
+        ttk.Label(
+            self.video_advanced, textvariable=self.video_size_guidance, wraplength=650
+        ).grid(row=3, column=0, columnspan=7, pady=(7, 0), sticky="w")
+
+        for variable in (
+            self.formato,
+            self.calidad,
+            self.video_width,
+            self.video_height,
+            self.video_fps,
+            self.video_aspect,
+            self.video_codec,
+            self.video_audio_codec,
+            self.video_background,
+            self.video_max_size,
+        ):
+            variable.trace_add("write", self.video_settings_changed)
+        self.formato.trace_add("write", self.video_format_changed)
+        self.apply_video_preset_id(self.settings_store.load_last_video_preset())
+
+    def video_format_changed(self, *_args) -> None:
+        if self._applying_video_preset:
+            return
+        codecs = self.CODECS.get(self.formato.get())
+        if codecs:
+            self._applying_video_preset = True
+            try:
+                self.video_codec.set(codecs[0])
+                self.video_audio_codec.set(codecs[1])
+            finally:
+                self._applying_video_preset = False
+
+    def apply_selected_video_preset(self, _event=None) -> None:
+        self.apply_video_preset_id(
+            self._video_preset_ids.get(
+                self.video_preset_display.get(), CUSTOM_PRESET_ID
+            )
+        )
+
+    def apply_video_preset_id(self, preset_id: str) -> None:
+        preset = preset_by_id(preset_id)
+        if (
+            preset is None
+            or preset.media_category != "video"
+            or preset.video_settings is None
+        ):
+            self.video_preset_display.set("Personalizado")
+            self.video_preset_description.set("Ajustes de vídeo manuales.")
+            selected_id = CUSTOM_PRESET_ID
+        else:
+            settings = preset.video_settings
+            self._applying_video_preset = True
+            try:
+                self.video_preset_display.set(preset.display_name)
+                self.video_preset_description.set(preset.description)
+                self.formato.set(preset.output_format)
+                self.calidad.set(round((40 - settings.crf) / 0.24))
+                self.video_width.set(str(settings.width) if settings.width else "")
+                self.video_height.set(str(settings.height) if settings.height else "")
+                self.video_fps.set(str(settings.fps_cap) if settings.fps_cap else "")
+                label = next(
+                    k
+                    for k, v in self.ASPECT_LABELS.items()
+                    if v == settings.aspect_mode
+                )
+                self.video_aspect.set(label)
+                self.video_codec.set(settings.video_codec)
+                self.video_audio_codec.set(settings.audio_codec)
+                self.video_remove_audio.set(settings.remove_audio)
+                self.video_background.set(settings.background)
+                self.video_max_size.set(
+                    str(settings.max_size_mb) if settings.max_size_mb else ""
+                )
+                selected_id = preset.preset_id
+            finally:
+                self._applying_video_preset = False
+        try:
+            self.settings_store.save_last_video_preset(selected_id)
+        except OSError:
+            pass
+
+    def video_settings_changed(self, *_args) -> None:
+        if self._applying_video_preset:
+            return
+        self.video_preset_display.set("Personalizado")
+        self.video_preset_description.set("Ajustes de vídeo modificados manualmente.")
+        try:
+            self.settings_store.save_last_video_preset(CUSTOM_PRESET_ID)
+        except OSError:
+            pass
+
+    def current_video_settings(self) -> VideoSettings:
+        width_text, height_text = (
+            self.video_width.get().strip(),
+            self.video_height.get().strip(),
+        )
+        fps_text = self.video_fps.get().strip()
+        max_size_text = self.video_max_size.get().strip()
+        return VideoSettings(
+            self.video_codec.get(),
+            self.video_audio_codec.get(),
+            int(width_text) if width_text else None,
+            int(height_text) if height_text else None,
+            self.ASPECT_LABELS[self.video_aspect.get()],
+            int(fps_text) if fps_text else None,
+            round(40 - self.calidad.get() * 0.24),
+            self.video_remove_audio.get(),
+            self.video_background.get().strip() or "black",
+            "yuv420p",
+            self.formato.get() in {"MP4", "MOV"},
+            int(max_size_text) if max_size_text else None,
+        )
+
+    def validar_inicio(self) -> str | None:
+        try:
+            settings = self.current_video_settings()
+            validate_video_settings(self.formato.get(), settings)
+            if settings.max_size_mb is not None and settings.max_size_mb <= 0:
+                return "El tamaño máximo orientativo debe ser positivo."
+        except (KeyError, ValueError) as error:
+            return str(error)
+        return None
+
+    def opciones_conversion(self) -> dict[str, object]:
+        options = PanelConversor.opciones_conversion(self)
+        options["video_settings"] = self.current_video_settings()
+        options["video_preset"] = self._video_preset_ids.get(
+            self.video_preset_display.get(), CUSTOM_PRESET_ID
+        )
+        return options
+
+    def bloquear(self, bloqueado: bool) -> None:
+        PanelConversor.bloquear(self, bloqueado)
+        readonly = "disabled" if bloqueado else "readonly"
+        normal = "disabled" if bloqueado else "normal"
+        for widget in (
+            self.video_preset_selector,
+            self.video_aspect_selector,
+            self.video_codec_selector,
+            self.video_audio_selector,
+        ):
+            widget.configure(state=readonly)
+        for widget in (
+            self.video_width_entry,
+            self.video_height_entry,
+            self.video_fps_entry,
+            self.video_background_entry,
+            self.video_max_size_entry,
+        ):
+            widget.configure(state=normal)
+        self.video_audio_check.configure(state=normal)
 
     def convertir_lote(
         self,
@@ -1965,82 +2282,33 @@ class PanelVideo(PanelAudio):
         errores_iniciales: list[str] | None = None,
         opciones: dict[str, object] | None = None,
     ) -> None:
-        crf = round(40 - calidad * 0.24)
-        codecs = {
-            "MP4": [
-                "-c:v",
-                "libx264",
-                "-preset",
-                "slow",
-                "-crf",
-                str(crf),
-                "-pix_fmt",
-                "yuv420p",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "192k",
-                "-movflags",
-                "+faststart",
-            ],
-            "MKV": [
-                "-c:v",
-                "libx264",
-                "-preset",
-                "slow",
-                "-crf",
-                str(crf),
-                "-c:a",
-                "aac",
-                "-b:a",
-                "192k",
-            ],
-            "WebM": [
-                "-c:v",
-                "libvpx-vp9",
-                "-crf",
-                str(crf),
-                "-b:v",
-                "0",
-                "-c:a",
-                "libopus",
-                "-b:a",
-                "160k",
-            ],
-            "MOV": [
-                "-c:v",
-                "libx264",
-                "-preset",
-                "slow",
-                "-crf",
-                str(crf),
-                "-pix_fmt",
-                "yuv420p",
-                "-c:a",
-                "aac",
-                "-movflags",
-                "+faststart",
-            ],
-            "AVI": [
-                "-c:v",
-                "mpeg4",
-                "-q:v",
-                str(max(2, round(31 - calidad * 0.29))),
-                "-c:a",
-                "libmp3lame",
-                "-b:a",
-                "192k",
-            ],
-        }
+        settings = (opciones or {}).get("video_settings")
+        if not isinstance(settings, VideoSettings):
+            codecs = self.CODECS[formato]
+            settings = VideoSettings(
+                codecs[0],
+                codecs[1],
+                None,
+                None,
+                "preserve",
+                None,
+                round(40 - calidad * 0.24),
+                faststart=formato in {"MP4", "MOV"},
+            )
         self.convertir_ffmpeg_lote(
             origen,
             archivos,
             formato,
             FORMATOS_VIDEO[formato],
-            codecs[formato],
+            build_video_args(formato, settings),
             list(errores_iniciales or []),
             opciones,
             False,
+            required_encoder=(
+                (settings.video_codec,)
+                if settings.remove_audio
+                else (settings.video_codec, settings.audio_codec)
+            ),
         )
 
 

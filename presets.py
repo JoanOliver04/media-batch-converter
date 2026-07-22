@@ -8,6 +8,7 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from video_encoding import VideoSettings
 from webp_encoding import WebPMode
 
 
@@ -36,7 +37,7 @@ class ConversionPreset:
     webp_mode: WebPMode | None = None
     resize_mode: str = "original"
     audio_settings: AudioSettings | None = None
-    video_settings: dict[str, object] | None = None
+    video_settings: VideoSettings | None = None
 
 
 IMAGE_PRESETS = (
@@ -139,8 +140,61 @@ AUDIO_PRESETS = (
     ),
 )
 
+VIDEO_PRESETS = (
+    ConversionPreset(
+        "in_app_720p",
+        "Uso interno 720p",
+        "H.264/AAC hasta 1280 × 720, 30 FPS y CRF 23.",
+        "video",
+        "MP4",
+        video_settings=VideoSettings(
+            "libx264", "aac", 1280, 720, "preserve", 30, 23, faststart=True
+        ),
+    ),
+    ConversionPreset(
+        "high_quality_1080p",
+        "Alta calidad 1080p",
+        "H.264/AAC hasta 1920 × 1080, 30 FPS y CRF 21.",
+        "video",
+        "MP4",
+        video_settings=VideoSettings(
+            "libx264", "aac", 1920, 1080, "preserve", 30, 21, faststart=True
+        ),
+    ),
+    ConversionPreset(
+        "vertical_social",
+        "Social vertical",
+        "H.264/AAC a 1080 × 1920 con bandas, 30 FPS y CRF 22.",
+        "video",
+        "MP4",
+        video_settings=VideoSettings(
+            "libx264", "aac", 1080, 1920, "fit", 30, 22, faststart=True
+        ),
+    ),
+    ConversionPreset(
+        "horizontal_trailer",
+        "Tráiler horizontal",
+        "H.264/AAC a 1920 × 1080, 30 FPS y calidad alta.",
+        "video",
+        "MP4",
+        video_settings=VideoSettings(
+            "libx264", "aac", 1920, 1080, "preserve", 30, 20, faststart=True
+        ),
+    ),
+    ConversionPreset(
+        "webm_vp9",
+        "WebM VP9",
+        "VP9/Opus con calidad CRF y dimensiones conservadas.",
+        "video",
+        "WebM",
+        video_settings=VideoSettings(
+            "libvpx-vp9", "libopus", None, None, "preserve", None, 30
+        ),
+    ),
+)
 PRESETS_BY_ID = {
-    preset.preset_id: preset for preset in (*IMAGE_PRESETS, *AUDIO_PRESETS)
+    preset.preset_id: preset
+    for preset in (*IMAGE_PRESETS, *AUDIO_PRESETS, *VIDEO_PRESETS)
 }
 
 
@@ -248,6 +302,18 @@ class SettingsStore:
             preset_id if preset_id in audio_ids else CUSTOM_PRESET_ID,
         )
 
+    def load_last_video_preset(self) -> str:
+        value = self._read().get("last_video_preset")
+        video_ids = {preset.preset_id for preset in VIDEO_PRESETS}
+        return value if value in video_ids else CUSTOM_PRESET_ID
+
+    def save_last_video_preset(self, preset_id: str) -> None:
+        video_ids = {preset.preset_id for preset in VIDEO_PRESETS}
+        self._update(
+            "last_video_preset",
+            preset_id if preset_id in video_ids else CUSTOM_PRESET_ID,
+        )
+
     def load_animation_mode(self) -> str:
         value = self._read().get("animation_mode")
         return (
@@ -267,4 +333,6 @@ class SettingsStore:
 
 def public_preset_data() -> list[dict[str, object]]:
     """Expose serializable data for validation and future media categories."""
-    return [asdict(preset) for preset in (*IMAGE_PRESETS, *AUDIO_PRESETS)]
+    return [
+        asdict(preset) for preset in (*IMAGE_PRESETS, *AUDIO_PRESETS, *VIDEO_PRESETS)
+    ]
