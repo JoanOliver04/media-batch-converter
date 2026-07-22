@@ -2,9 +2,19 @@
 
 Desktop application for converting and optimizing images, audio, and video individually or in batches. It is built with Python, Tkinter, Pillow, and FFmpeg.
 
-![Application screenshot placeholder](docs/screenshot-placeholder.svg)
+## Screenshots
 
-> The placeholder intentionally contains no local paths or user data. A real application screenshot can replace it in a future release.
+### Image conversion
+
+![Media Batch Converter image conversion tab](docs/screenshots/images-tab.png)
+
+### Audio conversion
+
+![Media Batch Converter audio conversion tab](docs/screenshots/audio-tab.png)
+
+### Video conversion
+
+![Media Batch Converter video conversion tab](docs/screenshots/video-tab.png)
 
 ## Features
 
