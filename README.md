@@ -4,7 +4,7 @@ Aplicación de escritorio con pestañas independientes para convertir imágenes,
 
 ## Uso
 
-1. Ejecuta `iniciar.bat` o `python png_a_webp.py`.
+1. Instala las dependencias y ejecuta `iniciar.bat` o `python run_app.py`.
 2. Abre la pestaña **Imágenes**, **Audio** o **Vídeo**.
 3. Selecciona un archivo o una carpeta, elige el formato de salida y ajusta la calidad.
 4. Pulsa **Iniciar conversión**.
@@ -23,7 +23,7 @@ El progreso diferencia el descubrimiento, la conversión y la finalización. La 
 - Audio: MP3, WAV, FLAC, OGG, M4A/AAC y Opus.
 - Vídeo: MP4, MKV, WebM, MOV y AVI.
 
-Los resultados se guardan junto a los originales en una carpeta `convertidos_formato`. Los archivos originales nunca se modifican. Pillow e `imageio-ffmpeg` se instalan automáticamente mediante `pip` si no están disponibles.
+Los resultados se guardan junto a los originales en una carpeta `convertidos_formato`. Los archivos originales nunca se modifican. La aplicación **nunca instala dependencias ni ejecuta `pip` automáticamente**.
 
 La transparencia de imagen se conserva en los formatos compatibles; JPEG usa fondo blanco. Audio y vídeo conservan los metadatos compatibles y se procesan con FFmpeg. La barra de calidad controla el bitrate en audio y la compresión visual en vídeo.
 
@@ -207,8 +207,58 @@ Los modos de aspecto son:
 MP4 y MOV usan `+faststart`; H.264 usa `yuv420p` por compatibilidad amplia. La opción **Eliminar audio** genera `-an`, mientras los vídeos sin pista de audio se procesan normalmente. Se conservan los metadatos compatibles mediante una asignación explícita. El progreso durante cada vídeo se calcula con su duración y los tiempos comunicados por FFmpeg, y la cancelación termina el proceso y elimina la salida temporal.
 
 CRF representa calidad constante: un número menor ofrece más calidad y normalmente archivos mayores. Un bitrate objetivo busca un tamaño más predecible, pero estos presets usan CRF para adaptarse mejor a la complejidad visual; el campo de tamaño máximo es solo una referencia y no altera silenciosamente la codificación.
+
 ## Resumen y comparación de tamaño
 
 Al finalizar se abre un resumen seleccionable con archivos descubiertos y procesados, conversiones correctas, omisiones, fallos, tamaños originales y finales, ahorro o aumento, porcentaje y tiempo transcurrido. **Copiar resumen** envía el contenido al portapapeles y los detalles de fallos se limitan inicialmente para mantener ágil la ventana en lotes grandes.
 
 Los cálculos usan bytes reales y un reloj monotónico. El porcentaje compara únicamente las entradas convertidas correctamente con sus nuevas salidas; los archivos fallidos u omitidos nunca se presentan como ahorro. Los archivos de salida anteriores tampoco se incluyen. Una cancelación muestra estadísticas parciales válidas de lo procesado hasta ese momento.
+
+## Instalación para desarrollo
+
+Se requiere Python 3.12 y Tkinter. Crea un entorno virtual e instala las versiones fijadas:
+
+```powershell
+py -3.12 -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python run_app.py
+```
+
+Si falta Pillow, el lanzador muestra el comando exacto de instalación y termina sin modificar el entorno. `imageio-ffmpeg` es el proveedor recomendado, pero la conversión de imágenes continúa disponible si FFmpeg falta. Las pestañas de audio y vídeo se muestran deshabilitadas en ese caso.
+
+## Resolución de FFmpeg y diagnóstico
+
+FFmpeg se busca en este orden:
+
+1. un ejecutable dentro de la carpeta `ffmpeg` de la aplicación empaquetada.
+2. El ejecutable proporcionado por `imageio-ffmpeg`.
+3. `ffmpeg` disponible en `PATH`.
+
+La pestaña **Diagnóstico** muestra versión de la aplicación, Python, sistema operativo, Pillow, formatos de imagen, versión, proveedor y ruta de FFmpeg. **Copiar diagnóstico** sustituye la carpeta personal por `~` para evitar divulgar rutas locales innecesarias.
+
+Solución de problemas:
+
+- **Falta Pillow:** ejecuta `python -m pip install -r requirements.txt` en el entorno elegido.
+- **Audio/Vídeo no disponible:** instala las dependencias o añade un FFmpeg funcional a `PATH`, y reinicia.
+- **Códec ausente:** usa la pestaña Diagnóstico para confirmar el FFmpeg elegido; los presets validan sus codificadores antes del lote.
+- **Tkinter ausente:** instala una distribución oficial de Python para Windows con Tcl/Tk.
+
+## Compilación para Windows
+
+La distribución elegida es **one-folder**, más transparente y fiable para FFmpeg que una extracción temporal one-file. Desde una consola de Windows ejecuta:
+
+```bat
+build_windows.bat
+```
+
+El script crea o reutiliza `.build-venv`, instala `requirements-dev.txt`, ejecuta todas las pruebas y llama a PyInstaller con `media_batch_converter.spec`. La salida esperada es:
+
+```text
+dist\MediaBatchConverter\MediaBatchConverter.exe
+```
+
+El build no abre consola, incluye los plugins de Pillow, recursos de Tkinter, metadatos de versión y el FFmpeg de `imageio-ffmpeg` dentro de la carpeta `ffmpeg`. No incluye tests, cachés, `prompts.md`, archivos `.env` ni fuentes locales. Los modos one-file futuros deberán documentar su extracción temporal antes de adoptarse.
+
+### Smoke test de distribución
+
+Antes de publicar una compilación se comprueba: inicio y cierre de la GUI; PNG a WebP con transparencia; conversión de audio; vídeo a MP4; carpeta recursiva; creación de salidas y limpieza tras cancelar. La compilación debe conservar operativas las imágenes aunque el FFmpeg incluido se retire para simular un fallo.

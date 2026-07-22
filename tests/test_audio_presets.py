@@ -139,8 +139,7 @@ class AudioBatchTests(unittest.TestCase):
             )
             with (
                 patch(
-                    "png_a_webp.imageio_ffmpeg.get_ffmpeg_exe",
-                    return_value="ffmpeg",
+                    "png_a_webp.resolve_ffmpeg", return_value=Mock(path=Path("ffmpeg"))
                 ),
                 patch("png_a_webp.encoder_available", return_value=True),
             ):

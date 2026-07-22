@@ -156,7 +156,7 @@ class VideoBatchTests(unittest.TestCase):
             panel.ejecutar_ffmpeg = cancel
             with (
                 patch(
-                    "png_a_webp.imageio_ffmpeg.get_ffmpeg_exe", return_value="ffmpeg"
+                    "png_a_webp.resolve_ffmpeg", return_value=Mock(path=Path("ffmpeg"))
                 ),
                 patch("png_a_webp.encoder_available", return_value=True),
                 patch("png_a_webp.probe_media", return_value=(10.0, True)),

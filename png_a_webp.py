@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import logging
 import subprocess
 import sys
@@ -11,7 +10,7 @@ import time
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from tkinter import BooleanVar, IntVar, StringVar, Tk, filedialog, messagebox
+from tkinter import BooleanVar, IntVar, StringVar, Text, Tk, filedialog, messagebox
 from tkinter import ttk
 
 from audio_encoding import (
@@ -74,6 +73,7 @@ from presets import (
     preset_by_id,
     preset_matches,
 )
+from runtime_environment import diagnostics_text, resolve_ffmpeg
 from summary_dialog import show_summary
 from video_encoding import (
     VideoSettings,
@@ -90,36 +90,7 @@ from webp_encoding import (
 )
 
 
-def instalar_dependencias() -> None:
-    """Instala las dependencias usando el mismo intérprete de Python."""
-    faltan = []
-    for modulo in ("PIL", "imageio_ffmpeg"):
-        try:
-            importlib.import_module(modulo)
-        except ImportError:
-            faltan.append(modulo)
-    if faltan:
-        try:
-            subprocess.check_call(
-                [
-                    sys.executable,
-                    "-m",
-                    "pip",
-                    "install",
-                    "-r",
-                    str(Path(__file__).with_name("requirements.txt")),
-                ]
-            )
-        except (subprocess.CalledProcessError, OSError) as error:
-            raise RuntimeError(
-                "No se pudieron instalar Pillow y FFmpeg automáticamente. "
-                "Comprueba tu conexión a Internet y que pip esté disponible."
-            ) from error
-
-
-instalar_dependencias()
-import imageio_ffmpeg  # noqa: E402
-from PIL import Image, ImageOps, ImageSequence  # noqa: E402
+from PIL import Image, ImageOps, ImageSequence
 
 
 FORMATOS_IMAGEN = {
@@ -1827,11 +1798,16 @@ class PanelAudio(PanelConversor):
         name_collisions = batch_name_collision_keys(
             destino, origen, archivos, extension, normalize
         )
-        try:
-            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-        except Exception as error:
-            self.raiz.after(0, self.fallar, str(error))
+        ffmpeg_info = resolve_ffmpeg()
+        if ffmpeg_info is None:
+            self.raiz.after(
+                0,
+                self.fallar,
+                "FFmpeg no está disponible. Instala imageio-ffmpeg con "
+                "'python -m pip install -r requirements.txt' o añade ffmpeg al PATH.",
+            )
             return
+        ffmpeg = str(ffmpeg_info.path)
         required_encoders = (
             (required_encoder,)
             if isinstance(required_encoder, str)
@@ -2312,6 +2288,37 @@ class PanelVideo(PanelAudio):
         )
 
 
+class DiagnosticsPanel(ttk.Frame):
+    def __init__(self, parent, raiz: Tk) -> None:
+        super().__init__(parent, padding=24)
+        self.raiz = raiz
+        ttk.Label(self, text="Diagnóstico", font=("Segoe UI", 18, "bold")).pack(
+            anchor="w", pady=(0, 14)
+        )
+        self.text = Text(self, wrap="word", height=22, width=90)
+        self.text.pack(fill="both", expand=True)
+        actions = ttk.Frame(self)
+        actions.pack(anchor="e", pady=(12, 0))
+        ttk.Button(actions, text="Actualizar", command=self.refresh).pack(
+            side="left", padx=(0, 8)
+        )
+        ttk.Button(actions, text="Copiar diagnóstico", command=self.copy).pack(
+            side="left"
+        )
+        self.refresh()
+
+    def refresh(self) -> None:
+        self.text.configure(state="normal")
+        self.text.delete("1.0", "end")
+        self.text.insert("1.0", diagnostics_text())
+        self.text.configure(state="disabled")
+
+    def copy(self) -> None:
+        self.raiz.clipboard_clear()
+        self.raiz.clipboard_append(self.text.get("1.0", "end-1c"))
+        self.raiz.update_idletasks()
+
+
 class ConversorApp:
     def __init__(self, raiz: Tk) -> None:
         raiz.title("Conversor multimedia")
@@ -2319,9 +2326,22 @@ class ConversorApp:
         raiz.minsize(760, 740)
         pestañas = ttk.Notebook(raiz)
         pestañas.pack(fill="both", expand=True)
-        pestañas.add(PanelImagen(pestañas, raiz), text=" Imágenes ")
-        pestañas.add(PanelAudio(pestañas, raiz), text=" Audio ")
-        pestañas.add(PanelVideo(pestañas, raiz), text=" Vídeo ")
+        image_panel = PanelImagen(pestañas, raiz)
+        audio_panel = PanelAudio(pestañas, raiz)
+        video_panel = PanelVideo(pestañas, raiz)
+        pestañas.add(image_panel, text=" Imágenes ")
+        pestañas.add(audio_panel, text=" Audio ")
+        pestañas.add(video_panel, text=" Vídeo ")
+        pestañas.add(DiagnosticsPanel(pestañas, raiz), text=" Diagnóstico ")
+        if resolve_ffmpeg() is None:
+            unavailable = (
+                "FFmpeg no disponible. Las imágenes siguen operativas; instala las "
+                "dependencias o añade ffmpeg al PATH para habilitar esta sección."
+            )
+            audio_panel.estado.set(unavailable)
+            video_panel.estado.set(unavailable)
+            pestañas.tab(audio_panel, state="disabled")
+            pestañas.tab(video_panel, state="disabled")
 
 
 def main() -> None:
