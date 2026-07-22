@@ -63,3 +63,8 @@ El redimensionado se realiza después de corregir la orientación EXIF y antes d
 - **Escalar por porcentaje:** aplica un porcentaje proporcional. Con **Nunca ampliar imágenes pequeñas** activo, el máximo efectivo es 100%; al desactivarlo se permite una ampliación explícita y limitada.
 
 Para un archivo individual se muestra una estimación basada en sus dimensiones después de orientar. En lotes, cada archivo se calcula individualmente. Las animaciones GIF/WebP redimensionan todos los fotogramas al mismo tamaño objetivo. No se aplican recorte, deformación ni ampliación mediante IA.
+## Resumen y comparación de tamaño
+
+Al finalizar se abre un resumen seleccionable con archivos descubiertos y procesados, conversiones correctas, omisiones, fallos, tamaños originales y finales, ahorro o aumento, porcentaje y tiempo transcurrido. **Copiar resumen** envía el contenido al portapapeles y los detalles de fallos se limitan inicialmente para mantener ágil la ventana en lotes grandes.
+
+Los cálculos usan bytes reales y un reloj monotónico. El porcentaje compara únicamente las entradas convertidas correctamente con sus nuevas salidas; los archivos fallidos u omitidos nunca se presentan como ahorro. Los archivos de salida anteriores tampoco se incluyen. Una cancelación muestra estadísticas parciales válidas de lo procesado hasta ese momento.

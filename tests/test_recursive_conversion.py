@@ -127,8 +127,10 @@ class ImageBatchTests(unittest.TestCase):
             panel.cancel_event = threading.Event()
             panel.notificar_avance = lambda *_args: None
             completion: dict[str, object] = {}
-            panel.completar = lambda destination, successes, errors: completion.update(
-                destination=destination, successes=successes, errors=errors
+            panel.finalizar_resultados = lambda destination, results, errors, *args: (
+                completion.update(
+                    destination=destination, results=results, discovery_errors=errors
+                )
             )
 
             panel.convertir_lote(root, [valid, invalid], "WebP", 85)
@@ -136,8 +138,19 @@ class ImageBatchTests(unittest.TestCase):
             self.assertTrue(
                 root.joinpath("convertidos_webp", "grupo á", "same.webp").is_file()
             )
-            self.assertEqual(completion["successes"], 1)
-            self.assertEqual(len(completion["errors"]), 1)
+            self.assertEqual(
+                sum(
+                    result.status.value == "converted"
+                    for result in completion["results"]
+                ),
+                1,
+            )
+            self.assertEqual(
+                sum(
+                    result.status.value == "failed" for result in completion["results"]
+                ),
+                1,
+            )
 
 
 if __name__ == "__main__":

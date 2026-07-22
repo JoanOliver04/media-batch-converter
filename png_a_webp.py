@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from tkinter import BooleanVar, IntVar, StringVar, Tk, filedialog, messagebox
 from tkinter import ttk
 
 from batch_processing import discover_files, safe_output_directory
+from conversion_results import BatchSummary, FileResult, ResultStatus, safe_file_size
 from image_resize import (
     ResizeConfig,
     ResizeMode,
@@ -24,6 +27,7 @@ from presets import (
     preset_by_id,
     preset_matches,
 )
+from summary_dialog import show_summary
 from webp_encoding import (
     WebPMode,
     resolve_webp_mode,
@@ -116,6 +120,9 @@ class PanelConversor(ttk.Frame):
         self.recursivo = BooleanVar(value=True)
         self.cancel_event = threading.Event()
         self.proceso_activo: subprocess.Popen[str] | None = None
+        self.batch_started = 0.0
+        self.files_discovered = 0
+        self.last_summary: BatchSummary | None = None
         self.columnconfigure(0, weight=1)
 
         ttk.Label(self, text=titulo, font=("Segoe UI", 18, "bold")).grid(
@@ -226,6 +233,8 @@ class PanelConversor(ttk.Frame):
             return
 
         self.cancel_event.clear()
+        self.batch_started = time.monotonic()
+        logging.getLogger(__name__).info("batch_start media=%s", type(self).__name__)
         self.bloquear(True)
         self.progreso.configure(mode="indeterminate", value=0)
         self.progreso.start(12)
@@ -263,6 +272,7 @@ class PanelConversor(ttk.Frame):
                 self.raiz.after(0, self.conversion_cancelada, 0)
                 return
 
+        self.files_discovered = len(archivos)
         self.raiz.after(0, self.preparar_progreso_conversion, len(archivos))
         if not archivos:
             self.raiz.after(0, self.sin_archivos, errores_descubrimiento)
@@ -330,6 +340,38 @@ class PanelConversor(ttk.Frame):
         self.selector_formato.configure(state="disabled" if bloqueado else "readonly")
         self.opcion_recursiva.configure(state=estado)
         self.boton_cancelar.configure(state="normal" if bloqueado else "disabled")
+
+    def finalizar_resultados(
+        self,
+        destino: Path,
+        resultados: list[FileResult],
+        errores_descubrimiento: list[str],
+        cancelled: bool = False,
+    ) -> None:
+        summary = BatchSummary(
+            files_discovered=self.files_discovered,
+            results=tuple(resultados),
+            elapsed_seconds=time.monotonic() - self.batch_started,
+            cancelled=cancelled,
+            discovery_errors=tuple(errores_descubrimiento),
+        )
+        self.last_summary = summary
+        self.bloquear(False)
+        self.estado.set(
+            f"Finalizado: {summary.converted} convertido(s), {summary.skipped} omitido(s), "
+            f"{summary.failed} fallido(s)."
+        )
+        logging.getLogger(__name__).info(
+            "batch_complete discovered=%d processed=%d converted=%d skipped=%d failed=%d elapsed=%.3f cancelled=%s",
+            summary.files_discovered,
+            summary.files_processed,
+            summary.converted,
+            summary.skipped,
+            summary.failed,
+            summary.elapsed_seconds,
+            summary.cancelled,
+        )
+        show_summary(self.raiz, summary, destino)
 
     def completar(self, destino: Path, exitos: int, errores: list[str]) -> None:
         self.bloquear(False)
@@ -784,20 +826,6 @@ class PanelImagen(PanelConversor):
         frames[0].save(salida, format=formato, **save_options)
         return resolved_mode
 
-    def completar(self, destino: Path, exitos: int, errores: list[str]) -> None:
-        super().completar(destino, exitos, errores)
-        if self.modos_seleccionados:
-            lossless = sum(
-                mode is WebPMode.LOSSLESS for mode in self.modos_seleccionados.values()
-            )
-            lossy = sum(
-                mode is WebPMode.LOSSY for mode in self.modos_seleccionados.values()
-            )
-            self.estado.set(
-                f"Finalizado: {exitos} convertido(s). WebP sin pérdida: {lossless}; "
-                f"con pérdida: {lossy}; errores: {len(errores)}."
-            )
-
     def convertir_lote(
         self,
         origen: Path,
@@ -811,13 +839,20 @@ class PanelImagen(PanelConversor):
         requested_mode = (opciones or {}).get("webp_mode", WebPMode.AUTOMATIC.value)
         resize_config = (opciones or {}).get("resize_config", ResizeConfig())
         destino = origen / f"convertidos_{elegido.lower()}"
-        errores = list(errores_iniciales or [])
-        exitos = 0
+        discovery_errors = list(errores_iniciales or [])
+        results: list[FileResult] = []
         self.modos_seleccionados = {}
 
         for indice, archivo in enumerate(archivos, 1):
             if self.cancel_event.is_set():
-                self.raiz.after(0, self.conversion_cancelada, exitos)
+                self.raiz.after(
+                    0,
+                    self.finalizar_resultados,
+                    destino,
+                    results,
+                    discovery_errors,
+                    True,
+                )
                 return
             self.raiz.after(
                 0,
@@ -825,6 +860,9 @@ class PanelImagen(PanelConversor):
                 f"Convirtiendo {indice}/{len(archivos)}: {archivo.name}",
             )
             salida: Path | None = None
+            started = time.monotonic()
+            original_bytes = safe_file_size(archivo)
+            resolved_mode: WebPMode | None = None
             try:
                 carpeta_salida = safe_output_directory(destino, origen, archivo)
                 carpeta_salida.mkdir(parents=True, exist_ok=True)
@@ -841,19 +879,35 @@ class PanelImagen(PanelConversor):
                     )
                 if resolved_mode is not None:
                     self.modos_seleccionados[archivo] = resolved_mode
-                    self.raiz.after(
-                        0,
-                        self.estado.set,
-                        f"{archivo.name}: WebP {resolved_mode.value}",
+                results.append(
+                    FileResult(
+                        archivo,
+                        salida,
+                        ResultStatus.CONVERTED,
+                        original_bytes,
+                        safe_file_size(salida),
+                        processing_seconds=time.monotonic() - started,
+                        encoder_mode=resolved_mode.value if resolved_mode else None,
                     )
-                exitos += 1
+                )
             except Exception as error:
                 if salida is not None:
                     salida.unlink(missing_ok=True)
-                errores.append(f"{archivo}: {error}")
+                results.append(
+                    FileResult(
+                        archivo,
+                        None,
+                        ResultStatus.FAILED,
+                        original_bytes,
+                        error_message=str(error),
+                        processing_seconds=time.monotonic() - started,
+                    )
+                )
             self.notificar_avance(indice, len(archivos), archivo.name)
         self.raiz.after(0, self.estado.set, "Finalizando lote…")
-        self.raiz.after(0, self.completar, destino, exitos, errores)
+        self.raiz.after(
+            0, self.finalizar_resultados, destino, results, discovery_errors
+        )
 
 
 class PanelAudio(PanelConversor):
@@ -899,8 +953,8 @@ class PanelAudio(PanelConversor):
             "M4A": ["-c:a", "aac", "-b:a", f"{bitrate}k"],
             "Opus": ["-c:a", "libopus", "-b:a", f"{min(bitrate, 256)}k"],
         }
-        errores = list(errores_iniciales or [])
-        exitos = 0
+        discovery_errors = list(errores_iniciales or [])
+        results: list[FileResult] = []
         try:
             ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
         except Exception as error:
@@ -909,7 +963,14 @@ class PanelAudio(PanelConversor):
 
         for indice, archivo in enumerate(archivos, 1):
             if self.cancel_event.is_set():
-                self.raiz.after(0, self.conversion_cancelada, exitos)
+                self.raiz.after(
+                    0,
+                    self.finalizar_resultados,
+                    destino,
+                    results,
+                    discovery_errors,
+                    True,
+                )
                 return
             self.raiz.after(
                 0,
@@ -917,6 +978,8 @@ class PanelAudio(PanelConversor):
                 f"Convirtiendo {indice}/{len(archivos)}: {archivo.name}",
             )
             salida: Path | None = None
+            started = time.monotonic()
+            original_bytes = safe_file_size(archivo)
             try:
                 carpeta_salida = safe_output_directory(destino, origen, archivo)
                 carpeta_salida.mkdir(parents=True, exist_ok=True)
@@ -935,17 +998,44 @@ class PanelAudio(PanelConversor):
                     str(salida),
                 ]
                 self.ejecutar_ffmpeg(comando)
-                exitos += 1
+                results.append(
+                    FileResult(
+                        archivo,
+                        salida,
+                        ResultStatus.CONVERTED,
+                        original_bytes,
+                        safe_file_size(salida),
+                        processing_seconds=time.monotonic() - started,
+                    )
+                )
             except Exception as error:
                 if salida is not None:
                     salida.unlink(missing_ok=True)
                 if self.cancel_event.is_set():
-                    self.raiz.after(0, self.conversion_cancelada, exitos)
+                    self.raiz.after(
+                        0,
+                        self.finalizar_resultados,
+                        destino,
+                        results,
+                        discovery_errors,
+                        True,
+                    )
                     return
-                errores.append(f"{archivo}: {error}")
+                results.append(
+                    FileResult(
+                        archivo,
+                        None,
+                        ResultStatus.FAILED,
+                        original_bytes,
+                        error_message=str(error),
+                        processing_seconds=time.monotonic() - started,
+                    )
+                )
             self.notificar_avance(indice, len(archivos), archivo.name)
         self.raiz.after(0, self.estado.set, "Finalizando lote…")
-        self.raiz.after(0, self.completar, destino, exitos, errores)
+        self.raiz.after(
+            0, self.finalizar_resultados, destino, results, discovery_errors
+        )
 
 
 class PanelVideo(PanelAudio):
@@ -1031,8 +1121,8 @@ class PanelVideo(PanelAudio):
                 "192k",
             ],
         }
-        errores = list(errores_iniciales or [])
-        exitos = 0
+        discovery_errors = list(errores_iniciales or [])
+        results: list[FileResult] = []
         try:
             ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
         except Exception as error:
@@ -1041,7 +1131,14 @@ class PanelVideo(PanelAudio):
 
         for indice, archivo in enumerate(archivos, 1):
             if self.cancel_event.is_set():
-                self.raiz.after(0, self.conversion_cancelada, exitos)
+                self.raiz.after(
+                    0,
+                    self.finalizar_resultados,
+                    destino,
+                    results,
+                    discovery_errors,
+                    True,
+                )
                 return
             self.raiz.after(
                 0,
@@ -1049,6 +1146,8 @@ class PanelVideo(PanelAudio):
                 f"Convirtiendo {indice}/{len(archivos)}: {archivo.name}",
             )
             salida: Path | None = None
+            started = time.monotonic()
+            original_bytes = safe_file_size(archivo)
             try:
                 carpeta_salida = safe_output_directory(destino, origen, archivo)
                 carpeta_salida.mkdir(parents=True, exist_ok=True)
@@ -1066,17 +1165,44 @@ class PanelVideo(PanelAudio):
                     str(salida),
                 ]
                 self.ejecutar_ffmpeg(comando)
-                exitos += 1
+                results.append(
+                    FileResult(
+                        archivo,
+                        salida,
+                        ResultStatus.CONVERTED,
+                        original_bytes,
+                        safe_file_size(salida),
+                        processing_seconds=time.monotonic() - started,
+                    )
+                )
             except Exception as error:
                 if salida is not None:
                     salida.unlink(missing_ok=True)
                 if self.cancel_event.is_set():
-                    self.raiz.after(0, self.conversion_cancelada, exitos)
+                    self.raiz.after(
+                        0,
+                        self.finalizar_resultados,
+                        destino,
+                        results,
+                        discovery_errors,
+                        True,
+                    )
                     return
-                errores.append(f"{archivo}: {error}")
+                results.append(
+                    FileResult(
+                        archivo,
+                        None,
+                        ResultStatus.FAILED,
+                        original_bytes,
+                        error_message=str(error),
+                        processing_seconds=time.monotonic() - started,
+                    )
+                )
             self.notificar_avance(indice, len(archivos), archivo.name)
         self.raiz.after(0, self.estado.set, "Finalizando lote…")
-        self.raiz.after(0, self.completar, destino, exitos, errores)
+        self.raiz.after(
+            0, self.finalizar_resultados, destino, results, discovery_errors
+        )
 
 
 class ConversorApp:
