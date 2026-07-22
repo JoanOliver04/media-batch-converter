@@ -11,6 +11,13 @@ from tkinter import BooleanVar, IntVar, StringVar, Tk, filedialog, messagebox
 from tkinter import ttk
 
 from batch_processing import discover_files, safe_output_directory
+from presets import (
+    CUSTOM_PRESET_ID,
+    IMAGE_PRESETS,
+    SettingsStore,
+    preset_by_id,
+    preset_matches,
+)
 from webp_encoding import (
     WebPMode,
     resolve_webp_mode,
@@ -131,6 +138,7 @@ class PanelConversor(ttk.Frame):
         self.opcion_recursiva.grid(row=2, column=0, sticky="w", pady=(14, 0))
 
         opciones = ttk.Frame(self)
+        self.opciones_frame = opciones
         opciones.grid(row=3, column=0, sticky="ew", pady=16)
         opciones.columnconfigure(3, weight=1)
         ttk.Label(opciones, text="Formato de salida:").grid(
@@ -360,7 +368,40 @@ class PanelImagen(PanelConversor):
         self.webp_help = StringVar()
         self.modos_seleccionados: dict[Path, WebPMode] = {}
         self._bloqueado = False
+        self.settings_store = SettingsStore()
+        self._applying_preset = False
+        self.preset_description = StringVar(value="Ajustes elegidos manualmente.")
+        self.preset_display = StringVar(value="Personalizado")
+        self._preset_ids_by_display = {
+            preset.display_name: preset.preset_id for preset in IMAGE_PRESETS
+        }
 
+        ttk.Label(self.opciones_frame, text="Preset:").grid(
+            row=1, column=0, padx=(0, 10), pady=(10, 0), sticky="w"
+        )
+        self.selector_preset = ttk.Combobox(
+            self.opciones_frame,
+            textvariable=self.preset_display,
+            values=(
+                "Personalizado",
+                *(preset.display_name for preset in IMAGE_PRESETS),
+            ),
+            state="readonly",
+            width=28,
+        )
+        self.selector_preset.grid(
+            row=1, column=1, padx=(0, 16), pady=(10, 0), sticky="w"
+        )
+        ttk.Label(
+            self.opciones_frame, textvariable=self.preset_description, wraplength=390
+        ).grid(row=1, column=2, columnspan=3, pady=(10, 0), sticky="w")
+        self.selector_preset.bind(
+            "<<ComboboxSelected>>", self.aplicar_preset_seleccionado
+        )
+
+        self.formato.trace_add("write", self.ajustes_modificados)
+        self.calidad.trace_add("write", self.ajustes_modificados)
+        self.webp_mode.trace_add("write", self.ajustes_modificados)
         for row in range(6, 3, -1):
             for widget in self.grid_slaves(row=row):
                 widget.grid_configure(row=row + 1)
@@ -387,7 +428,54 @@ class PanelImagen(PanelConversor):
         self.selector_formato.bind(
             "<<ComboboxSelected>>", self.actualizar_controles_webp
         )
+        self.aplicar_preset_id(self.settings_store.load_last_image_preset())
+
+    def aplicar_preset_seleccionado(self, _event=None) -> None:
+        preset_id = self._preset_ids_by_display.get(
+            self.preset_display.get(), CUSTOM_PRESET_ID
+        )
+        self.aplicar_preset_id(preset_id)
+
+    def aplicar_preset_id(self, preset_id: str) -> None:
+        preset = preset_by_id(preset_id)
+        self._applying_preset = True
+        try:
+            if preset is None:
+                self.preset_display.set("Personalizado")
+                self.preset_description.set("Ajustes elegidos manualmente.")
+                selected_id = CUSTOM_PRESET_ID
+            else:
+                self.preset_display.set(preset.display_name)
+                self.preset_description.set(preset.description)
+                self.formato.set(preset.output_format)
+                if preset.quality is not None:
+                    self.calidad.set(preset.quality)
+                if preset.webp_mode is not None:
+                    self.webp_mode.set(preset.webp_mode.value)
+                selected_id = preset.preset_id
+        finally:
+            self._applying_preset = False
         self.actualizar_controles_webp()
+        try:
+            self.settings_store.save_last_image_preset(selected_id)
+        except OSError:
+            pass
+
+    def ajustes_modificados(self, *_args) -> None:
+        if self._applying_preset:
+            return
+        current_id = self._preset_ids_by_display.get(self.preset_display.get())
+        current = preset_by_id(current_id)
+        if current and preset_matches(
+            current, self.formato.get(), self.calidad.get(), self.webp_mode.get()
+        ):
+            return
+        self.preset_display.set("Personalizado")
+        self.preset_description.set("Ajustes modificados manualmente.")
+        try:
+            self.settings_store.save_last_image_preset(CUSTOM_PRESET_ID)
+        except OSError:
+            pass
 
     def actualizar_controles_webp(self, _event=None) -> None:
         visible = webp_controls_visible(self.formato.get())
@@ -409,6 +497,7 @@ class PanelImagen(PanelConversor):
     def bloquear(self, bloqueado: bool) -> None:
         self._bloqueado = bloqueado
         super().bloquear(bloqueado)
+        self.selector_preset.configure(state="disabled" if bloqueado else "readonly")
         self.actualizar_controles_webp()
 
     @staticmethod
@@ -773,8 +862,8 @@ class PanelVideo(PanelAudio):
 class ConversorApp:
     def __init__(self, raiz: Tk) -> None:
         raiz.title("Conversor multimedia")
-        raiz.geometry("800x440")
-        raiz.minsize(680, 410)
+        raiz.geometry("820x520")
+        raiz.minsize(620, 500)
         pestañas = ttk.Notebook(raiz)
         pestañas.pack(fill="both", expand=True)
         pestañas.add(PanelImagen(pestañas, raiz), text=" Imágenes ")

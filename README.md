@@ -38,3 +38,17 @@ Las conversiones anteriores no se sobrescriben: si un nombre ya existe, se añad
 - **Sin pérdida:** conserva exactamente los valores de los píxeles y desactiva el control de calidad. Puede producir archivos mayores.
 
 La decisión automática se realiza independientemente para cada archivo del lote y el modo elegido se muestra durante la conversión. Las exportaciones mantienen la política existente de la aplicación: no copian perfiles ICC ni metadatos EXIF. El modo con pérdida suele ser apropiado para fotografías e ilustraciones complejas; el modo sin pérdida, para iconos, gráficos planos y recursos que exigen fidelidad exacta.
+## Presets de imagen
+
+Los presets aplican formato, modo WebP y calidad de una sola vez. Después se puede modificar cualquier ajuste; la selección cambia a **Personalizado** para no presentar una configuración modificada como si siguiera intacta. El último preset se guarda localmente en las preferencias del usuario.
+
+| Preset | Salida | Modo | Calidad | Uso previsto |
+| --- | --- | --- | ---: | --- |
+| Ilustración de alta calidad | WebP | Con pérdida | 90 | Ilustraciones detalladas |
+| Recurso móvil general | WebP | Automático | 88 | Recursos de uso general |
+| Fondo grande | WebP | Con pérdida | 82 | Fondos extensos |
+| Recurso de interfaz transparente | WebP | Sin pérdida | No aplica | Iconos y elementos con alfa exacto |
+| Miniatura | WebP | Con pérdida | 78 | Imágenes compactas; todavía sin redimensionado |
+| Archivo sin pérdida | PNG | Sin pérdida | No aplica | Conservación y archivo |
+
+Todos los presets mantienen las dimensiones originales. El modelo reserva opciones de redimensionado y de audio/vídeo para ampliaciones posteriores, pero no aplica silenciosamente funciones todavía no disponibles.
