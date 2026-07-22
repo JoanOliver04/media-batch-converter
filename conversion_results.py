@@ -23,6 +23,7 @@ class FileResult:
     error_message: str | None = None
     processing_seconds: float = 0.0
     encoder_mode: str | None = None
+    output_action: str | None = None
 
     @property
     def bytes_saved(self) -> int:
@@ -61,6 +62,25 @@ class BatchSummary:
     @property
     def failed(self) -> int:
         return self.count(ResultStatus.FAILED) + len(self.discovery_errors)
+
+    def action_count(self, action: str) -> int:
+        return sum(result.output_action == action for result in self.results)
+
+    @property
+    def overwritten(self) -> int:
+        return self.action_count("overwritten")
+
+    @property
+    def renamed(self) -> int:
+        return self.action_count("renamed")
+
+    @property
+    def skipped_existing(self) -> int:
+        return self.action_count("skipped_exists")
+
+    @property
+    def skipped_up_to_date(self) -> int:
+        return self.action_count("skipped_up_to_date")
 
     @property
     def original_bytes(self) -> int:
@@ -150,6 +170,10 @@ def summary_text(summary: BatchSummary) -> str:
             f"Archivos procesados: {summary.files_processed}",
             f"Convertidos correctamente: {summary.converted}",
             f"Omitidos: {summary.skipped}",
+            f"  - Destino existente: {summary.skipped_existing}",
+            f"  - Destino actualizado: {summary.skipped_up_to_date}",
+            f"Sobrescritos: {summary.overwritten}",
+            f"Renombrados por colisión: {summary.renamed}",
             f"Fallidos: {summary.failed}",
             f"Tamaño original procesado: {format_bytes(summary.original_bytes)}",
             f"Tamaño de salida: {format_bytes(summary.output_bytes)}",

@@ -124,19 +124,42 @@ class SettingsStore:
     def __init__(self, path: Path | None = None) -> None:
         self.path = Path(path) if path else default_settings_path()
 
-    def load_last_image_preset(self) -> str:
+    def _read(self) -> dict[str, object]:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, TypeError):
-            return CUSTOM_PRESET_ID
-        return normalized_preset_id(data.get("last_image_preset"))
+            return {}
+        return data if isinstance(data, dict) else {}
 
-    def save_last_image_preset(self, preset_id: str) -> None:
+    def _update(self, key: str, value: object) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"last_image_preset": normalized_preset_id(preset_id)}
+        payload = self._read()
+        payload[key] = value
         temporary = self.path.with_suffix(".tmp")
         temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         temporary.replace(self.path)
+
+    def load_last_image_preset(self) -> str:
+        return normalized_preset_id(self._read().get("last_image_preset"))
+
+    def save_last_image_preset(self, preset_id: str) -> None:
+        self._update("last_image_preset", normalized_preset_id(preset_id))
+
+    def load_output_policy(self) -> str:
+        value = self._read().get("output_policy")
+        return (
+            value
+            if value in {"skip", "overwrite", "unique", "source_newer"}
+            else "skip"
+        )
+
+    def save_output_policy(self, policy: str) -> None:
+        value = (
+            policy
+            if policy in {"skip", "overwrite", "unique", "source_newer"}
+            else "skip"
+        )
+        self._update("output_policy", value)
 
 
 def public_preset_data() -> list[dict[str, object]]:

@@ -29,7 +29,14 @@ La transparencia de imagen se conserva en los formatos compatibles; JPEG usa fon
 
 ## Protección y tolerancia a errores
 
-Las conversiones anteriores no se sobrescriben: si un nombre ya existe, se añade un número. Un archivo dañado no detiene el resto del lote y el resumen final muestra los fallos. Las animaciones GIF/WebP se conservan cuando el formato de salida también admite animación.
+La opción **Si el destino existe** se aplica por igual a imágenes, audio y vídeo, y recuerda la última elección:
+
+- **Omitir (predeterminada):** conserva el archivo existente sin convertirlo.
+- **Sobrescribir de forma segura:** genera primero un archivo temporal en la misma carpeta y solo entonces reemplaza el destino de forma atómica. Si la codificación, los permisos o la sustitución fallan, se conserva el archivo anterior y se elimina el temporal.
+- **Crear un nombre único:** conserva ambos archivos con sufijos deterministas `_2`, `_3`…; las rutas se reservan entre conversiones simultáneas y las colisiones se comparan sin distinguir mayúsculas.
+- **Convertir si el origen es más reciente:** sobrescribe de forma segura únicamente cuando la marca temporal del origen es posterior a la del destino.
+
+La comparación temporal depende de la precisión del sistema de archivos y considera actualizado un destino con fecha igual o posterior. El resumen separa conversiones, sobrescrituras, renombrados, omisiones por existencia, omisiones por fecha y fallos. Un archivo dañado no detiene el resto del lote. Las animaciones GIF/WebP se conservan cuando el formato de salida también admite animación.
 
 ## Modos WebP
 

@@ -14,6 +14,13 @@ from tkinter import ttk
 
 from batch_processing import discover_files, safe_output_directory
 from conversion_results import BatchSummary, FileResult, ResultStatus, safe_file_size
+from output_policy import (
+    OutputAction,
+    OutputPolicy,
+    cleanup_temporary,
+    commit_output,
+    plan_output,
+)
 from image_resize import (
     ResizeConfig,
     ResizeMode,
@@ -123,6 +130,21 @@ class PanelConversor(ttk.Frame):
         self.batch_started = 0.0
         self.files_discovered = 0
         self.last_summary: BatchSummary | None = None
+        self.settings_store = SettingsStore()
+        self.output_policy = StringVar(value=self.settings_store.load_output_policy())
+        self.output_policy_help = StringVar()
+        self._policy_by_display = {
+            "Omitir": OutputPolicy.SKIP,
+            "Sobrescribir de forma segura": OutputPolicy.OVERWRITE,
+            "Crear un nombre único": OutputPolicy.UNIQUE,
+            "Convertir si el origen es más reciente": OutputPolicy.SOURCE_NEWER,
+        }
+        self._policy_help = {
+            OutputPolicy.SKIP: "Conserva cualquier destino existente (opción predeterminada).",
+            OutputPolicy.OVERWRITE: "Reemplaza el destino solo después de convertir correctamente.",
+            OutputPolicy.UNIQUE: "Conserva ambos archivos añadiendo _2, _3… al nombre.",
+            OutputPolicy.SOURCE_NEWER: "Solo reemplaza si la fecha del origen es posterior.",
+        }
         self.columnconfigure(0, weight=1)
 
         ttk.Label(self, text=titulo, font=("Segoe UI", 18, "bold")).grid(
@@ -177,6 +199,28 @@ class PanelConversor(ttk.Frame):
         ttk.Label(opciones, textvariable=self.calidad, width=4, anchor="e").grid(
             row=0, column=4, padx=(8, 0)
         )
+        ttk.Label(opciones, text="Si el destino existe:").grid(
+            row=2, column=0, padx=(0, 10), pady=(10, 0), sticky="w"
+        )
+        self.selector_policy = ttk.Combobox(
+            opciones, values=tuple(self._policy_by_display), state="readonly", width=31
+        )
+        selected_policy_label = next(
+            label
+            for label, policy in self._policy_by_display.items()
+            if policy.value == self.output_policy.get()
+        )
+        self.selector_policy.set(selected_policy_label)
+        self.selector_policy.grid(
+            row=2, column=1, padx=(0, 16), pady=(10, 0), sticky="w"
+        )
+        ttk.Label(opciones, textvariable=self.output_policy_help, wraplength=390).grid(
+            row=2, column=2, columnspan=3, pady=(10, 0), sticky="w"
+        )
+        self.selector_policy.bind("<<ComboboxSelected>>", self.output_policy_changed)
+        self.output_policy_help.set(
+            self._policy_help[OutputPolicy(self.output_policy.get())]
+        )
 
         self.progreso = ttk.Progressbar(self, mode="determinate")
         self.progreso.grid(row=4, column=0, sticky="ew", pady=(0, 10))
@@ -193,6 +237,17 @@ class PanelConversor(ttk.Frame):
             acciones, text="Iniciar conversión", command=self.iniciar
         )
         self.boton_convertir.grid(row=0, column=1)
+
+    def output_policy_changed(self, _event=None) -> None:
+        policy = self._policy_by_display.get(
+            self.selector_policy.get(), OutputPolicy.SKIP
+        )
+        self.output_policy.set(policy.value)
+        self.output_policy_help.set(self._policy_help[policy])
+        try:
+            self.settings_store.save_output_policy(policy.value)
+        except OSError:
+            pass
 
     def archivos_en(self, carpeta: Path) -> list[Path]:
         return discover_files(carpeta, self.extensiones, self.recursivo.get()).files
@@ -285,7 +340,7 @@ class PanelConversor(ttk.Frame):
         return None
 
     def opciones_conversion(self) -> dict[str, object]:
-        return {}
+        return {"output_policy": self.output_policy.get()}
 
     def preparar_progreso_conversion(self, total: int) -> None:
         self.progreso.stop()
@@ -340,6 +395,7 @@ class PanelConversor(ttk.Frame):
         self.selector_formato.configure(state="disabled" if bloqueado else "readonly")
         self.opcion_recursiva.configure(state=estado)
         self.boton_cancelar.configure(state="normal" if bloqueado else "disabled")
+        self.selector_policy.configure(state="disabled" if bloqueado else "readonly")
 
     def finalizar_resultados(
         self,
@@ -396,16 +452,6 @@ class PanelConversor(ttk.Frame):
         self.bloquear(False)
         self.estado.set("La conversión se interrumpió debido a un error.")
         messagebox.showerror("Error de conversión", detalle)
-
-
-def ruta_salida_unica(carpeta: Path, nombre: str, extension: str) -> Path:
-    """Devuelve una ruta libre para no sobrescribir conversiones anteriores."""
-    candidata = carpeta / f"{nombre}{extension}"
-    contador = 2
-    while candidata.exists():
-        candidata = carpeta / f"{nombre} ({contador}){extension}"
-        contador += 1
-    return candidata
 
 
 class PanelImagen(PanelConversor):
@@ -719,6 +765,7 @@ class PanelImagen(PanelConversor):
         return {
             "webp_mode": self.webp_mode.get(),
             "resize_config": self.current_resize_config(),
+            "output_policy": self.output_policy.get(),
         }
 
     def bloquear(self, bloqueado: bool) -> None:
@@ -838,6 +885,7 @@ class PanelImagen(PanelConversor):
         formato, extension = FORMATOS_IMAGEN[elegido]
         requested_mode = (opciones or {}).get("webp_mode", WebPMode.AUTOMATIC.value)
         resize_config = (opciones or {}).get("resize_config", ResizeConfig())
+        policy = OutputPolicy((opciones or {}).get("output_policy", OutputPolicy.SKIP))
         destino = origen / f"convertidos_{elegido.lower()}"
         discovery_errors = list(errores_iniciales or [])
         results: list[FileResult] = []
@@ -859,40 +907,59 @@ class PanelImagen(PanelConversor):
                 self.estado.set,
                 f"Convirtiendo {indice}/{len(archivos)}: {archivo.name}",
             )
-            salida: Path | None = None
             started = time.monotonic()
             original_bytes = safe_file_size(archivo)
-            resolved_mode: WebPMode | None = None
+            plan = None
             try:
-                carpeta_salida = safe_output_directory(destino, origen, archivo)
-                carpeta_salida.mkdir(parents=True, exist_ok=True)
-                salida = ruta_salida_unica(carpeta_salida, archivo.stem, extension)
-                with Image.open(archivo) as imagen:
+                output_directory = safe_output_directory(destino, origen, archivo)
+                output_directory.mkdir(parents=True, exist_ok=True)
+                desired = output_directory / f"{archivo.stem}{extension}"
+                plan = plan_output(archivo, desired, policy)
+                if not plan.should_convert:
+                    results.append(
+                        FileResult(
+                            archivo,
+                            plan.target,
+                            ResultStatus.SKIPPED,
+                            original_bytes,
+                            error_message=(
+                                "El destino ya existe."
+                                if plan.action is OutputAction.SKIP_EXISTS
+                                else "El destino está actualizado."
+                            ),
+                            processing_seconds=time.monotonic() - started,
+                            output_action=plan.action.value,
+                        )
+                    )
+                    self.notificar_avance(indice, len(archivos), archivo.name)
+                    continue
+                with Image.open(archivo) as image:
                     resolved_mode = self.guardar_imagen(
-                        imagen,
-                        salida,
+                        image,
+                        plan.temporary,
                         formato,
                         calidad,
                         archivo,
                         requested_mode,
                         resize_config,
                     )
+                commit_output(plan)
                 if resolved_mode is not None:
                     self.modos_seleccionados[archivo] = resolved_mode
                 results.append(
                     FileResult(
                         archivo,
-                        salida,
+                        plan.target,
                         ResultStatus.CONVERTED,
                         original_bytes,
-                        safe_file_size(salida),
+                        safe_file_size(plan.target),
                         processing_seconds=time.monotonic() - started,
                         encoder_mode=resolved_mode.value if resolved_mode else None,
+                        output_action=plan.action.value,
                     )
                 )
             except Exception as error:
-                if salida is not None:
-                    salida.unlink(missing_ok=True)
+                cleanup_temporary(plan)
                 results.append(
                     FileResult(
                         archivo,
@@ -916,23 +983,130 @@ class PanelAudio(PanelConversor):
 
     def ejecutar_ffmpeg(self, comando: list[str]) -> None:
         flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        proceso = subprocess.Popen(
+        process = subprocess.Popen(
             comando,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             creationflags=flags,
         )
-        self.proceso_activo = proceso
+        self.proceso_activo = process
         try:
-            _, stderr = proceso.communicate()
+            _, stderr = process.communicate()
         finally:
             self.proceso_activo = None
-        if proceso.returncode:
-            detalle = stderr.strip().splitlines()
+        if process.returncode:
+            detail = stderr.strip().splitlines()
             raise RuntimeError(
-                detalle[-1] if detalle else "FFmpeg no pudo completar la conversión."
+                detail[-1] if detail else "FFmpeg no pudo completar la conversión."
             )
+
+    def convertir_ffmpeg_lote(
+        self,
+        origen: Path,
+        archivos: list[Path],
+        formato: str,
+        extension: str,
+        codec_args: list[str],
+        errores_iniciales: list[str],
+        opciones: dict[str, object] | None,
+        audio_only: bool,
+    ) -> None:
+        destino = origen / f"convertidos_{formato.lower()}"
+        policy = OutputPolicy((opciones or {}).get("output_policy", OutputPolicy.SKIP))
+        results: list[FileResult] = []
+        try:
+            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception as error:
+            self.raiz.after(0, self.fallar, str(error))
+            return
+
+        for index, source in enumerate(archivos, 1):
+            if self.cancel_event.is_set():
+                self.raiz.after(
+                    0,
+                    self.finalizar_resultados,
+                    destino,
+                    results,
+                    errores_iniciales,
+                    True,
+                )
+                return
+            self.raiz.after(
+                0,
+                self.estado.set,
+                f"Convirtiendo {index}/{len(archivos)}: {source.name}",
+            )
+            started = time.monotonic()
+            original_bytes = safe_file_size(source)
+            plan = None
+            try:
+                output_directory = safe_output_directory(destino, origen, source)
+                output_directory.mkdir(parents=True, exist_ok=True)
+                desired = output_directory / f"{source.stem}{extension}"
+                plan = plan_output(source, desired, policy)
+                if not plan.should_convert:
+                    results.append(
+                        FileResult(
+                            source,
+                            plan.target,
+                            ResultStatus.SKIPPED,
+                            original_bytes,
+                            error_message=(
+                                "El destino ya existe."
+                                if plan.action is OutputAction.SKIP_EXISTS
+                                else "El destino está actualizado."
+                            ),
+                            processing_seconds=time.monotonic() - started,
+                            output_action=plan.action.value,
+                        )
+                    )
+                    self.notificar_avance(index, len(archivos), source.name)
+                    continue
+                command = [ffmpeg, "-y", "-i", str(source), "-map_metadata", "0"]
+                if audio_only:
+                    command.append("-vn")
+                command.extend((*codec_args, str(plan.temporary)))
+                self.ejecutar_ffmpeg(command)
+                commit_output(plan)
+                results.append(
+                    FileResult(
+                        source,
+                        plan.target,
+                        ResultStatus.CONVERTED,
+                        original_bytes,
+                        safe_file_size(plan.target),
+                        processing_seconds=time.monotonic() - started,
+                        output_action=plan.action.value,
+                    )
+                )
+            except Exception as error:
+                cleanup_temporary(plan)
+                if self.cancel_event.is_set():
+                    self.raiz.after(
+                        0,
+                        self.finalizar_resultados,
+                        destino,
+                        results,
+                        errores_iniciales,
+                        True,
+                    )
+                    return
+                results.append(
+                    FileResult(
+                        source,
+                        None,
+                        ResultStatus.FAILED,
+                        original_bytes,
+                        error_message=str(error),
+                        processing_seconds=time.monotonic() - started,
+                    )
+                )
+            self.notificar_avance(index, len(archivos), source.name)
+        self.raiz.after(0, self.estado.set, "Finalizando lote…")
+        self.raiz.after(
+            0, self.finalizar_resultados, destino, results, errores_iniciales
+        )
 
     def convertir_lote(
         self,
@@ -943,7 +1117,6 @@ class PanelAudio(PanelConversor):
         errores_iniciales: list[str] | None = None,
         opciones: dict[str, object] | None = None,
     ) -> None:
-        destino = origen / f"convertidos_{formato.lower()}"
         bitrate = round(64 + calidad * 2.56)
         codecs = {
             "MP3": ["-c:a", "libmp3lame", "-b:a", f"{bitrate}k"],
@@ -953,88 +1126,15 @@ class PanelAudio(PanelConversor):
             "M4A": ["-c:a", "aac", "-b:a", f"{bitrate}k"],
             "Opus": ["-c:a", "libopus", "-b:a", f"{min(bitrate, 256)}k"],
         }
-        discovery_errors = list(errores_iniciales or [])
-        results: list[FileResult] = []
-        try:
-            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-        except Exception as error:
-            self.raiz.after(0, self.fallar, str(error))
-            return
-
-        for indice, archivo in enumerate(archivos, 1):
-            if self.cancel_event.is_set():
-                self.raiz.after(
-                    0,
-                    self.finalizar_resultados,
-                    destino,
-                    results,
-                    discovery_errors,
-                    True,
-                )
-                return
-            self.raiz.after(
-                0,
-                self.estado.set,
-                f"Convirtiendo {indice}/{len(archivos)}: {archivo.name}",
-            )
-            salida: Path | None = None
-            started = time.monotonic()
-            original_bytes = safe_file_size(archivo)
-            try:
-                carpeta_salida = safe_output_directory(destino, origen, archivo)
-                carpeta_salida.mkdir(parents=True, exist_ok=True)
-                salida = ruta_salida_unica(
-                    carpeta_salida, archivo.stem, FORMATOS_AUDIO[formato]
-                )
-                comando = [
-                    ffmpeg,
-                    "-y",
-                    "-i",
-                    str(archivo),
-                    "-map_metadata",
-                    "0",
-                    "-vn",
-                    *codecs[formato],
-                    str(salida),
-                ]
-                self.ejecutar_ffmpeg(comando)
-                results.append(
-                    FileResult(
-                        archivo,
-                        salida,
-                        ResultStatus.CONVERTED,
-                        original_bytes,
-                        safe_file_size(salida),
-                        processing_seconds=time.monotonic() - started,
-                    )
-                )
-            except Exception as error:
-                if salida is not None:
-                    salida.unlink(missing_ok=True)
-                if self.cancel_event.is_set():
-                    self.raiz.after(
-                        0,
-                        self.finalizar_resultados,
-                        destino,
-                        results,
-                        discovery_errors,
-                        True,
-                    )
-                    return
-                results.append(
-                    FileResult(
-                        archivo,
-                        None,
-                        ResultStatus.FAILED,
-                        original_bytes,
-                        error_message=str(error),
-                        processing_seconds=time.monotonic() - started,
-                    )
-                )
-            self.notificar_avance(indice, len(archivos), archivo.name)
-        self.raiz.after(0, self.estado.set, "Finalizando lote…")
-        self.raiz.after(
-            0, self.finalizar_resultados, destino, results, discovery_errors
+        self.convertir_ffmpeg_lote(
+            origen,
+            archivos,
+            formato,
+            FORMATOS_AUDIO[formato],
+            codecs[formato],
+            list(errores_iniciales or []),
+            opciones,
+            True,
         )
 
 
@@ -1053,7 +1153,6 @@ class PanelVideo(PanelAudio):
         errores_iniciales: list[str] | None = None,
         opciones: dict[str, object] | None = None,
     ) -> None:
-        destino = origen / f"convertidos_{formato.lower()}"
         crf = round(40 - calidad * 0.24)
         codecs = {
             "MP4": [
@@ -1121,95 +1220,23 @@ class PanelVideo(PanelAudio):
                 "192k",
             ],
         }
-        discovery_errors = list(errores_iniciales or [])
-        results: list[FileResult] = []
-        try:
-            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
-        except Exception as error:
-            self.raiz.after(0, self.fallar, str(error))
-            return
-
-        for indice, archivo in enumerate(archivos, 1):
-            if self.cancel_event.is_set():
-                self.raiz.after(
-                    0,
-                    self.finalizar_resultados,
-                    destino,
-                    results,
-                    discovery_errors,
-                    True,
-                )
-                return
-            self.raiz.after(
-                0,
-                self.estado.set,
-                f"Convirtiendo {indice}/{len(archivos)}: {archivo.name}",
-            )
-            salida: Path | None = None
-            started = time.monotonic()
-            original_bytes = safe_file_size(archivo)
-            try:
-                carpeta_salida = safe_output_directory(destino, origen, archivo)
-                carpeta_salida.mkdir(parents=True, exist_ok=True)
-                salida = ruta_salida_unica(
-                    carpeta_salida, archivo.stem, FORMATOS_VIDEO[formato]
-                )
-                comando = [
-                    ffmpeg,
-                    "-y",
-                    "-i",
-                    str(archivo),
-                    "-map_metadata",
-                    "0",
-                    *codecs[formato],
-                    str(salida),
-                ]
-                self.ejecutar_ffmpeg(comando)
-                results.append(
-                    FileResult(
-                        archivo,
-                        salida,
-                        ResultStatus.CONVERTED,
-                        original_bytes,
-                        safe_file_size(salida),
-                        processing_seconds=time.monotonic() - started,
-                    )
-                )
-            except Exception as error:
-                if salida is not None:
-                    salida.unlink(missing_ok=True)
-                if self.cancel_event.is_set():
-                    self.raiz.after(
-                        0,
-                        self.finalizar_resultados,
-                        destino,
-                        results,
-                        discovery_errors,
-                        True,
-                    )
-                    return
-                results.append(
-                    FileResult(
-                        archivo,
-                        None,
-                        ResultStatus.FAILED,
-                        original_bytes,
-                        error_message=str(error),
-                        processing_seconds=time.monotonic() - started,
-                    )
-                )
-            self.notificar_avance(indice, len(archivos), archivo.name)
-        self.raiz.after(0, self.estado.set, "Finalizando lote…")
-        self.raiz.after(
-            0, self.finalizar_resultados, destino, results, discovery_errors
+        self.convertir_ffmpeg_lote(
+            origen,
+            archivos,
+            formato,
+            FORMATOS_VIDEO[formato],
+            codecs[formato],
+            list(errores_iniciales or []),
+            opciones,
+            False,
         )
 
 
 class ConversorApp:
     def __init__(self, raiz: Tk) -> None:
         raiz.title("Conversor multimedia")
-        raiz.geometry("850x650")
-        raiz.minsize(620, 600)
+        raiz.geometry("900x700")
+        raiz.minsize(760, 640)
         pestañas = ttk.Notebook(raiz)
         pestañas.pack(fill="both", expand=True)
         pestañas.add(PanelImagen(pestañas, raiz), text=" Imágenes ")

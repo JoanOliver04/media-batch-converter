@@ -77,6 +77,18 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(store.load_last_image_preset(), CUSTOM_PRESET_ID)
         self.assertEqual(normalized_preset_id("unknown"), CUSTOM_PRESET_ID)
 
+    def test_output_policy_round_trip_preserves_other_settings(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
+            path = Path(temporary) / "settings.json"
+            store = SettingsStore(path)
+            store.save_last_image_preset("thumbnail")
+            store.save_output_policy("overwrite")
+            self.assertEqual(store.load_output_policy(), "overwrite")
+            self.assertEqual(store.load_last_image_preset(), "thumbnail")
+
+            store.save_output_policy("invalid")
+            self.assertEqual(store.load_output_policy(), "skip")
+
 
 class PresetUiTests(unittest.TestCase):
     def setUp(self) -> None:
