@@ -108,6 +108,19 @@ class BatchSummaryTests(unittest.TestCase):
             )
             self.assertEqual(summary.output_bytes, 40)
 
+    def test_name_collisions_are_counted_and_reported(self) -> None:
+        collision = FileResult(
+            Path("My File.png"),
+            Path("my_file.webp"),
+            ResultStatus.CONVERTED,
+            100,
+            50,
+            name_collision=True,
+        )
+        summary = BatchSummary(1, (collision,), 1)
+        self.assertEqual(summary.name_collisions, 1)
+        self.assertIn("Colisiones de nombre detectadas: 1", summary_text(summary))
+
     def test_elapsed_and_human_readable_formatting(self) -> None:
         summary = BatchSummary(0, (), 62.4)
         self.assertEqual(format_duration(summary.elapsed_seconds), "01:02")

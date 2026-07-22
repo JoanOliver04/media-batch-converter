@@ -24,6 +24,7 @@ class FileResult:
     processing_seconds: float = 0.0
     encoder_mode: str | None = None
     output_action: str | None = None
+    name_collision: bool = False
 
     @property
     def bytes_saved(self) -> int:
@@ -81,6 +82,10 @@ class BatchSummary:
     @property
     def skipped_up_to_date(self) -> int:
         return self.action_count("skipped_up_to_date")
+
+    @property
+    def name_collisions(self) -> int:
+        return sum(result.name_collision for result in self.results)
 
     @property
     def original_bytes(self) -> int:
@@ -174,6 +179,7 @@ def summary_text(summary: BatchSummary) -> str:
             f"  - Destino actualizado: {summary.skipped_up_to_date}",
             f"Sobrescritos: {summary.overwritten}",
             f"Renombrados por colisión: {summary.renamed}",
+            f"Colisiones de nombre detectadas: {summary.name_collisions}",
             f"Fallidos: {summary.failed}",
             f"Tamaño original procesado: {format_bytes(summary.original_bytes)}",
             f"Tamaño de salida: {format_bytes(summary.output_bytes)}",

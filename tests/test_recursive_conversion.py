@@ -152,6 +152,48 @@ class ImageBatchTests(unittest.TestCase):
                 1,
             )
 
+    def test_normalized_batch_collision_uses_unique_policy_and_is_reported(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
+            root = Path(temporary)
+            first = root / "My-File.png"
+            second = root / "My File.jpg"
+            Image.new("RGB", (4, 4), "red").save(first)
+            Image.new("RGB", (4, 4), "blue").save(second)
+
+            panel = PanelImagen.__new__(PanelImagen)
+            panel.raiz = ImmediateRoot()
+            panel.estado = DummyState()
+            panel.cancel_event = threading.Event()
+            panel.notificar_avance = lambda *_args: None
+            completion: dict[str, object] = {}
+            panel.finalizar_resultados = lambda destination, results, errors, *args: (
+                completion.update(destination=destination, results=results)
+            )
+
+            panel.convertir_lote(
+                root,
+                [first, second],
+                "WebP",
+                85,
+                opciones={
+                    "normalize_filenames": True,
+                    "output_policy": "unique",
+                },
+            )
+
+            output = root / "convertidos_webp"
+            self.assertTrue((output / "my_file.webp").is_file())
+            self.assertTrue((output / "my_file_2.webp").is_file())
+            self.assertTrue(
+                all(result.name_collision for result in completion["results"])
+            )
+            self.assertEqual(
+                [result.output_action for result in completion["results"]],
+                ["converted", "renamed"],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -161,6 +161,12 @@ class SettingsStore:
         )
         self._update("output_policy", value)
 
+    def load_normalize_filenames(self) -> bool:
+        return self._read().get("normalize_filenames") is True
+
+    def save_normalize_filenames(self, enabled: bool) -> None:
+        self._update("normalize_filenames", bool(enabled))
+
 
 def public_preset_data() -> list[dict[str, object]]:
     """Expose serializable data for validation and future media categories."""

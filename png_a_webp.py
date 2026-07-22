@@ -14,6 +14,7 @@ from tkinter import ttk
 
 from batch_processing import discover_files, safe_output_directory
 from conversion_results import BatchSummary, FileResult, ResultStatus, safe_file_size
+from filename_normalization import collision_keys, output_filename, path_key
 from output_policy import (
     OutputAction,
     OutputPolicy,
@@ -103,6 +104,32 @@ EXT_AUDIO = {".mp3", ".wav", ".flac", ".ogg", ".oga", ".m4a", ".aac", ".opus", "
 EXT_VIDEO = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".wmv", ".mpg", ".mpeg"}
 
 
+def desired_output_path(
+    output_root: Path,
+    source_root: Path,
+    source: Path,
+    extension: str,
+    normalize: bool,
+) -> Path:
+    directory = safe_output_directory(output_root, source_root, source)
+    return directory / output_filename(source, extension, normalize)
+
+
+def batch_name_collision_keys(
+    output_root: Path,
+    source_root: Path,
+    sources: list[Path],
+    extension: str,
+    normalize: bool,
+) -> set[str]:
+    return collision_keys(
+        [
+            desired_output_path(output_root, source_root, source, extension, normalize)
+            for source in sources
+        ]
+    )
+
+
 class PanelConversor(ttk.Frame):
     """Controles compartidos por los tres tipos de conversión."""
 
@@ -132,6 +159,12 @@ class PanelConversor(ttk.Frame):
         self.last_summary: BatchSummary | None = None
         self.settings_store = SettingsStore()
         self.output_policy = StringVar(value=self.settings_store.load_output_policy())
+        self.normalize_filenames = BooleanVar(
+            value=self.settings_store.load_normalize_filenames()
+        )
+        self.output_name_preview = StringVar(
+            value="Ejemplo: Character Happy.png → character_happy.webp"
+        )
         self.output_policy_help = StringVar()
         self._policy_by_display = {
             "Omitir": OutputPolicy.SKIP,
@@ -221,6 +254,21 @@ class PanelConversor(ttk.Frame):
         self.output_policy_help.set(
             self._policy_help[OutputPolicy(self.output_policy.get())]
         )
+        self.normalize_check = ttk.Checkbutton(
+            opciones,
+            text="Normalizar nombres de salida",
+            variable=self.normalize_filenames,
+            command=self.normalize_filenames_changed,
+        )
+        self.normalize_check.grid(
+            row=3, column=0, columnspan=2, pady=(10, 0), sticky="w"
+        )
+        ttk.Label(opciones, textvariable=self.output_name_preview, wraplength=470).grid(
+            row=3, column=2, columnspan=3, pady=(10, 0), sticky="w"
+        )
+        self.formato.trace_add(
+            "write", lambda *_args: self.update_output_name_preview()
+        )
 
         self.progreso = ttk.Progressbar(self, mode="determinate")
         self.progreso.grid(row=4, column=0, sticky="ew", pady=(0, 10))
@@ -249,6 +297,27 @@ class PanelConversor(ttk.Frame):
         except OSError:
             pass
 
+    def normalize_filenames_changed(self) -> None:
+        try:
+            self.settings_store.save_normalize_filenames(self.normalize_filenames.get())
+        except OSError:
+            pass
+        self.update_output_name_preview()
+
+    def update_output_name_preview(self) -> None:
+        selected = Path(self.seleccion.get())
+        if selected.is_file():
+            format_value = self.formatos[self.formato.get()]
+            extension = (
+                format_value[1] if isinstance(format_value, tuple) else format_value
+            )
+            name = output_filename(selected, extension, self.normalize_filenames.get())
+            self.output_name_preview.set(f"Nombre de salida: {name}")
+        else:
+            self.output_name_preview.set(
+                "Ejemplo: Character Happy.png → character_happy.webp"
+            )
+
     def archivos_en(self, carpeta: Path) -> list[Path]:
         return discover_files(carpeta, self.extensiones, self.recursivo.get()).files
 
@@ -261,6 +330,7 @@ class PanelConversor(ttk.Frame):
         if ruta:
             self.seleccion.set(ruta)
             self.estado.set(f"Archivo seleccionado: {Path(ruta).name}")
+            self.update_output_name_preview()
 
     def seleccionar_carpeta(self) -> None:
         ruta = filedialog.askdirectory(title="Selecciona una carpeta")
@@ -269,6 +339,7 @@ class PanelConversor(ttk.Frame):
             self.estado.set(
                 "Carpeta seleccionada. El contenido se descubrirá al iniciar."
             )
+            self.update_output_name_preview()
 
     def iniciar(self) -> None:
         validation_error = self.validar_inicio()
@@ -340,7 +411,10 @@ class PanelConversor(ttk.Frame):
         return None
 
     def opciones_conversion(self) -> dict[str, object]:
-        return {"output_policy": self.output_policy.get()}
+        return {
+            "output_policy": self.output_policy.get(),
+            "normalize_filenames": self.normalize_filenames.get(),
+        }
 
     def preparar_progreso_conversion(self, total: int) -> None:
         self.progreso.stop()
@@ -396,6 +470,7 @@ class PanelConversor(ttk.Frame):
         self.opcion_recursiva.configure(state=estado)
         self.boton_cancelar.configure(state="normal" if bloqueado else "disabled")
         self.selector_policy.configure(state="disabled" if bloqueado else "readonly")
+        self.normalize_check.configure(state=estado)
 
     def finalizar_resultados(
         self,
@@ -766,6 +841,7 @@ class PanelImagen(PanelConversor):
             "webp_mode": self.webp_mode.get(),
             "resize_config": self.current_resize_config(),
             "output_policy": self.output_policy.get(),
+            "normalize_filenames": self.normalize_filenames.get(),
         }
 
     def bloquear(self, bloqueado: bool) -> None:
@@ -886,9 +962,13 @@ class PanelImagen(PanelConversor):
         requested_mode = (opciones or {}).get("webp_mode", WebPMode.AUTOMATIC.value)
         resize_config = (opciones or {}).get("resize_config", ResizeConfig())
         policy = OutputPolicy((opciones or {}).get("output_policy", OutputPolicy.SKIP))
+        normalize = bool((opciones or {}).get("normalize_filenames", False))
         destino = origen / f"convertidos_{elegido.lower()}"
         discovery_errors = list(errores_iniciales or [])
         results: list[FileResult] = []
+        name_collisions = batch_name_collision_keys(
+            destino, origen, archivos, extension, normalize
+        )
         self.modos_seleccionados = {}
 
         for indice, archivo in enumerate(archivos, 1):
@@ -910,10 +990,13 @@ class PanelImagen(PanelConversor):
             started = time.monotonic()
             original_bytes = safe_file_size(archivo)
             plan = None
+            collision = False
             try:
-                output_directory = safe_output_directory(destino, origen, archivo)
-                output_directory.mkdir(parents=True, exist_ok=True)
-                desired = output_directory / f"{archivo.stem}{extension}"
+                desired = desired_output_path(
+                    destino, origen, archivo, extension, normalize
+                )
+                desired.parent.mkdir(parents=True, exist_ok=True)
+                collision = path_key(desired) in name_collisions
                 plan = plan_output(archivo, desired, policy)
                 if not plan.should_convert:
                     results.append(
@@ -929,6 +1012,7 @@ class PanelImagen(PanelConversor):
                             ),
                             processing_seconds=time.monotonic() - started,
                             output_action=plan.action.value,
+                            name_collision=collision,
                         )
                     )
                     self.notificar_avance(indice, len(archivos), archivo.name)
@@ -956,6 +1040,7 @@ class PanelImagen(PanelConversor):
                         processing_seconds=time.monotonic() - started,
                         encoder_mode=resolved_mode.value if resolved_mode else None,
                         output_action=plan.action.value,
+                        name_collision=collision,
                     )
                 )
             except Exception as error:
@@ -968,6 +1053,7 @@ class PanelImagen(PanelConversor):
                         original_bytes,
                         error_message=str(error),
                         processing_seconds=time.monotonic() - started,
+                        name_collision=collision,
                     )
                 )
             self.notificar_avance(indice, len(archivos), archivo.name)
@@ -1014,7 +1100,11 @@ class PanelAudio(PanelConversor):
     ) -> None:
         destino = origen / f"convertidos_{formato.lower()}"
         policy = OutputPolicy((opciones or {}).get("output_policy", OutputPolicy.SKIP))
+        normalize = bool((opciones or {}).get("normalize_filenames", False))
         results: list[FileResult] = []
+        name_collisions = batch_name_collision_keys(
+            destino, origen, archivos, extension, normalize
+        )
         try:
             ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
         except Exception as error:
@@ -1040,10 +1130,13 @@ class PanelAudio(PanelConversor):
             started = time.monotonic()
             original_bytes = safe_file_size(source)
             plan = None
+            collision = False
             try:
-                output_directory = safe_output_directory(destino, origen, source)
-                output_directory.mkdir(parents=True, exist_ok=True)
-                desired = output_directory / f"{source.stem}{extension}"
+                desired = desired_output_path(
+                    destino, origen, source, extension, normalize
+                )
+                desired.parent.mkdir(parents=True, exist_ok=True)
+                collision = path_key(desired) in name_collisions
                 plan = plan_output(source, desired, policy)
                 if not plan.should_convert:
                     results.append(
@@ -1059,6 +1152,7 @@ class PanelAudio(PanelConversor):
                             ),
                             processing_seconds=time.monotonic() - started,
                             output_action=plan.action.value,
+                            name_collision=collision,
                         )
                     )
                     self.notificar_avance(index, len(archivos), source.name)
@@ -1078,6 +1172,7 @@ class PanelAudio(PanelConversor):
                         safe_file_size(plan.target),
                         processing_seconds=time.monotonic() - started,
                         output_action=plan.action.value,
+                        name_collision=collision,
                     )
                 )
             except Exception as error:
@@ -1100,6 +1195,7 @@ class PanelAudio(PanelConversor):
                         original_bytes,
                         error_message=str(error),
                         processing_seconds=time.monotonic() - started,
+                        name_collision=collision,
                     )
                 )
             self.notificar_avance(index, len(archivos), source.name)

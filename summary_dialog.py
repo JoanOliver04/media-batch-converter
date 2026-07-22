@@ -33,11 +33,14 @@ def show_summary(parent, summary: BatchSummary, output_root: Path) -> None:
         result
         for result in summary.results
         if result.status in {ResultStatus.FAILED, ResultStatus.SKIPPED}
+        or result.name_collision
     ]
     if details or summary.discovery_errors:
-        body += "\nDetalles de fallos y omisiones:\n"
+        body += "\nDetalles de fallos, omisiones y colisiones:\n"
         for result in details[:DETAIL_LIMIT]:
             reason = result.error_message or result.status.value
+            if result.name_collision:
+                reason += " Colisión de nombre de salida detectada."
             body += f"- {result.source_path}: {reason}\n"
         remaining = max(0, len(details) - DETAIL_LIMIT)
         if remaining:

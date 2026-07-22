@@ -38,6 +38,13 @@ La opción **Si el destino existe** se aplica por igual a imágenes, audio y ví
 
 La comparación temporal depende de la precisión del sistema de archivos y considera actualizado un destino con fecha igual o posterior. El resumen separa conversiones, sobrescrituras, renombrados, omisiones por existencia, omisiones por fecha y fallos. Un archivo dañado no detiene el resto del lote. Las animaciones GIF/WebP se conservan cuando el formato de salida también admite animación.
 
+## Normalización opcional de nombres
+
+**Normalizar nombres de salida** está desactivado de forma predeterminada y se aplica únicamente a los archivos generados; nunca renombra los archivos de origen ni las carpetas. Para un archivo individual, la interfaz muestra una vista previa del nombre resultante.
+
+El algoritmo toma el nombre sin extensión, aplica Unicode NFKD, elimina marcas diacríticas cuando es posible, convierte a minúsculas ASCII y transforma separadores o puntuación en guiones bajos. Después colapsa separadores repetidos, retira los situados en los extremos y conserva solo `a-z`, `0-9` y `_`. Los nombres que empiezan por un número o están reservados en Windows (`CON`, `PRN`, `AUX`, `NUL`, `COM1`…`COM9`, `LPT1`…`LPT9`) reciben el prefijo `asset_`; un resultado vacío se convierte en `asset`. El nombre base se limita a **100 caracteres** y siempre conserva la extensión de salida elegida.
+
+Antes de procesar se detectan, sin distinguir mayúsculas, las rutas que convergen en el mismo nombre normalizado. Las carpetas relativas se mantienen, por lo que nombres iguales en subcarpetas diferentes no colisionan. Dentro de una misma carpeta, los elementos se procesan de forma determinista y se aplica la política de archivos existentes: omitir, sobrescribir explícitamente, crear sufijos `_2`, `_3`… o comparar fechas. Toda colisión se contabiliza y detalla en el resumen, incluso si la política seleccionada permite completar la conversión.
 ## Modos WebP
 
 - **Automático (predeterminado):** JPEG se codifica con pérdida; las animaciones, imágenes de paleta y muestras con 256 colores o menos se codifican sin pérdida; el resto se codifica con pérdida. Se consideran grandes las imágenes desde 1.000.000 de píxeles o 1.600 píxeles en cualquiera de sus dimensiones.

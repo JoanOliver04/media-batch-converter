@@ -16,7 +16,7 @@ from presets import (
     preset_matches,
     public_preset_data,
 )
-from png_a_webp import PanelImagen
+from png_a_webp import PanelAudio, PanelImagen
 from webp_encoding import WebPMode
 
 
@@ -85,6 +85,9 @@ class SettingsTests(unittest.TestCase):
             store.save_output_policy("overwrite")
             self.assertEqual(store.load_output_policy(), "overwrite")
             self.assertEqual(store.load_last_image_preset(), "thumbnail")
+            store.save_normalize_filenames(True)
+            self.assertTrue(store.load_normalize_filenames())
+            self.assertEqual(store.load_output_policy(), "overwrite")
 
             store.save_output_policy("invalid")
             self.assertEqual(store.load_output_policy(), "skip")
@@ -112,6 +115,31 @@ class PresetUiTests(unittest.TestCase):
             os.environ["APPDATA"] = self.previous_appdata
         if hasattr(self, "temporary"):
             self.temporary.cleanup()
+
+    def test_filename_normalization_is_optional_and_previews_single_file(self) -> None:
+        source = Path(self.temporary.name) / "Árbol Final.png"
+        source.write_bytes(b"preview only")
+        self.panel.seleccion.set(str(source))
+        self.panel.formato.set("WebP")
+        self.assertFalse(self.panel.normalize_filenames.get())
+        self.panel.normalize_filenames.set(True)
+        self.panel.normalize_filenames_changed()
+        self.assertEqual(
+            self.panel.output_name_preview.get(), "Nombre de salida: arbol_final.webp"
+        )
+        self.assertTrue(self.panel.opciones_conversion()["normalize_filenames"])
+
+    def test_audio_preview_uses_complete_extension(self) -> None:
+        panel = PanelAudio(self.root, self.root)
+        source = Path(self.temporary.name) / "Voice Final.wav"
+        source.write_bytes(b"preview only")
+        panel.seleccion.set(str(source))
+        panel.formato.set("MP3")
+        panel.normalize_filenames.set(True)
+        panel.update_output_name_preview()
+        self.assertEqual(
+            panel.output_name_preview.get(), "Nombre de salida: voice_final.mp3"
+        )
 
     def test_apply_modify_and_reapply_preset(self) -> None:
         self.panel.aplicar_preset_id("general_mobile_asset")
