@@ -220,7 +220,7 @@ class AnimationHandlingTests(unittest.TestCase):
         panel.convertir_lote(
             self.root,
             [self.source, static],
-            "JPEG",
+            "JPG",
             85,
             opciones={"animation_mode": AnimationMode.PRESERVE.value},
         )

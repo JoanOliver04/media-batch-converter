@@ -108,8 +108,9 @@ logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 FORMATOS_IMAGEN = {
     "WebP": ("WEBP", ".webp"),
-    "JPEG": ("JPEG", ".jpg"),
+    "JPG": ("JPEG", ".jpg"),
     "PNG": ("PNG", ".png"),
+    "ICO (favicon)": ("ICO", ".ico"),
     "TIFF": ("TIFF", ".tiff"),
     "BMP": ("BMP", ".bmp"),
     "GIF": ("GIF", ".gif"),
@@ -129,7 +130,17 @@ FORMATOS_VIDEO = {
     "MOV": ".mov",
     "AVI": ".avi",
 }
-EXT_IMAGEN = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".gif"}
+EXT_IMAGEN = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".ico",
+    ".bmp",
+    ".tif",
+    ".tiff",
+    ".gif",
+}
 EXT_AUDIO = {".mp3", ".wav", ".flac", ".ogg", ".oga", ".m4a", ".aac", ".opus", ".wma"}
 EXT_VIDEO = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".wmv", ".mpg", ".mpeg"}
 
@@ -1136,6 +1147,15 @@ class PanelImagen(PanelConversor):
             save_options = webp_save_options(resolved_mode, calidad)
         elif formato == "PNG":
             save_options = {"optimize": True, "compress_level": 9}
+        elif formato == "ICO":
+            max_icon_size = min(convertida.size)
+            sizes = [
+                (size, size)
+                for size in (16, 24, 32, 48, 64, 128, 256)
+                if size <= max_icon_size
+            ]
+            if sizes:
+                save_options = {"sizes": sizes}
         elif formato == "TIFF":
             save_options = {"compression": "tiff_deflate"}
         elif formato == "GIF":

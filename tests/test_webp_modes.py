@@ -75,6 +75,33 @@ class WebPDecisionTests(unittest.TestCase):
 
 
 class WebPEncodingTests(unittest.TestCase):
+    def test_ico_contains_standard_favicon_sizes_and_transparency(self) -> None:
+        image = Image.new("RGBA", (256, 256), (12, 34, 56, 78))
+        converted, options, mode = PanelImagen.preparar_estatica(
+            image, "ICO", 50, "logo.png"
+        )
+
+        self.assertIsNone(mode)
+        self.assertEqual(
+            options["sizes"],
+            [
+                (16, 16),
+                (24, 24),
+                (32, 32),
+                (48, 48),
+                (64, 64),
+                (128, 128),
+                (256, 256),
+            ],
+        )
+        stream = BytesIO()
+        converted.save(stream, format="ICO", **options)
+        stream.seek(0)
+        with Image.open(stream) as icon:
+            self.assertEqual(icon.format, "ICO")
+            self.assertEqual(icon.info["sizes"], set(options["sizes"]))
+            self.assertEqual(icon.convert("RGBA").getpixel((0, 0))[3], 78)
+
     def test_lossy_uses_quality_and_preserves_alpha(self) -> None:
         image = detailed_rgba((32, 32), alpha=77)
         converted, options, mode = PanelImagen.preparar_estatica(

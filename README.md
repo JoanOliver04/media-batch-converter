@@ -23,6 +23,7 @@ Desktop application for converting and optimizing images, audio, and video indiv
 - Choose WebP automatic, lossy, or lossless encoding.
 - Apply image, audio, and video presets, then refine settings manually.
 - Resize images proportionally while preserving transparency where the destination supports alpha.
+- Create multi-resolution ICO favicons from logos and other images.
 - Control video resolution, frame-rate limit, aspect handling, codecs, audio removal, and CRF quality.
 - Choose how existing outputs are handled: skip, safe overwrite, unique name, or overwrite only when newer.
 - Optionally normalize generated filenames without renaming originals.
@@ -35,7 +36,7 @@ Desktop application for converting and optimizing images, audio, and video indiv
 
 | Media | Input and output formats |
 | --- | --- |
-| Images | PNG, JPEG, WebP, BMP, TIFF, GIF |
+| Images | PNG, JPG, WebP, ICO, BMP, TIFF, GIF |
 | Audio | MP3, WAV, FLAC, OGG, M4A/AAC, Opus |
 | Video | MP4, MKV, WebM, MOV, AVI |
 
@@ -67,11 +68,16 @@ Outputs are created beside the sources in a `convertidos_<format>` directory. Ex
 ### Examples
 
 - Convert a transparent PNG to WebP: Images → select file → WebP → Automatic → Start.
+- Create a favicon from a logo: Images → select a PNG or another image → ICO (favicon) → Start.
 - Convert a recursive image tree: Images → select folder → keep Include subfolders enabled.
 - Create an audio master: Audio → select source → WAV master preset.
 - Create a compatible MP4: Video → select source → High quality 1080p preset.
 
 ## Image behavior
+
+### Favicons
+
+ICO output preserves transparency and embeds the standard 16, 24, 32, 48, 64, 128, and 256 px square sizes supported by the source dimensions. Square source images are recommended for predictable browser results.
 
 ### WebP modes
 

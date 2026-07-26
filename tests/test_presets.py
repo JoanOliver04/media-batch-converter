@@ -230,7 +230,7 @@ class PresetUiTests(unittest.TestCase):
         self.panel.seleccion.set(str(animated))
         self.panel.update_animation_controls()
         self.assertTrue(self.panel.animation_frame.winfo_manager())
-        self.panel.formato.set("JPEG")
+        self.panel.formato.set("JPG")
         self.panel.animation_mode.set("preserve")
         self.assertIsNotNone(self.panel.validar_inicio())
 

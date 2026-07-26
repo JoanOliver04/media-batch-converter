@@ -144,6 +144,7 @@ def validate_properties(
         "JPEG": {".jpg", ".jpeg"},
         "PNG": {".png"},
         "WEBP": {".webp"},
+        "ICO": {".ico"},
         "GIF": {".gif"},
         "BMP": {".bmp"},
         "TIFF": {".tif", ".tiff"},
