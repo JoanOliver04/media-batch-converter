@@ -139,7 +139,7 @@ class WebPEncodingTests(unittest.TestCase):
 
     def test_batch_can_select_different_automatic_modes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             jpeg = root / "photo.jpg"
             palette = root / "icon.png"
             Image.new("RGB", (20, 20), "red").save(jpeg)

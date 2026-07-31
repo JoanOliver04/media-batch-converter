@@ -33,7 +33,7 @@ class LanguageSelectorTests(unittest.TestCase):
         self.addCleanup(set_language, DEFAULT_LANGUAGE)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.settings_path = Path(self.temporary.name) / "settings.json"
+        self.settings_path = Path(self.temporary.name).resolve() / "settings.json"
         try:
             self.root = Tk()
             self.root.withdraw()

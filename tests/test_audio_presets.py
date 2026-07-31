@@ -117,7 +117,7 @@ class DummyState:
 class AudioBatchTests(unittest.TestCase):
     def test_batch_command_is_argument_list_and_output_is_committed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             source = root / "audio ü.wav"
             source.write_bytes(b"source")
             panel = AudioPanel.__new__(AudioPanel)

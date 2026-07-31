@@ -75,7 +75,7 @@ class PresetModelTests(unittest.TestCase):
 class SettingsTests(unittest.TestCase):
     def test_round_trip_and_unknown_preset_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "settings.json"
+            path = Path(temporary).resolve() / "settings.json"
             store = SettingsStore(path)
             store.save_last_image_preset("thumbnail")
             self.assertEqual(store.load_last_image_preset(), "thumbnail")
@@ -87,7 +87,7 @@ class SettingsTests(unittest.TestCase):
 
     def test_output_policy_round_trip_preserves_other_settings(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "settings.json"
+            path = Path(temporary).resolve() / "settings.json"
             store = SettingsStore(path)
             store.save_last_image_preset("thumbnail")
             store.save_output_policy("overwrite")
@@ -139,7 +139,7 @@ class PresetUiTests(unittest.TestCase):
             self.temporary.cleanup()
 
     def test_filename_normalization_is_optional_and_previews_single_file(self) -> None:
-        source = Path(self.temporary.name) / "Árbol Final.png"
+        source = Path(self.temporary.name).resolve() / "Árbol Final.png"
         source.write_bytes(b"preview only")
         self.panel.selection.set(str(source))
         self.panel.output_format.set("WebP")
@@ -153,7 +153,7 @@ class PresetUiTests(unittest.TestCase):
 
     def test_audio_preview_uses_complete_extension(self) -> None:
         panel = AudioPanel(self.root, self.root)
-        source = Path(self.temporary.name) / "Voice Final.wav"
+        source = Path(self.temporary.name).resolve() / "Voice Final.wav"
         source.write_bytes(b"preview only")
         panel.selection.set(str(source))
         panel.output_format.set("MP3")
@@ -217,8 +217,8 @@ class PresetUiTests(unittest.TestCase):
         self.assertFalse(options["report_absolute_paths"])
 
     def test_animation_controls_hide_for_static_and_show_for_animation(self) -> None:
-        static = Path(self.temporary.name) / "static.png"
-        animated = Path(self.temporary.name) / "animated.gif"
+        static = Path(self.temporary.name).resolve() / "static.png"
+        animated = Path(self.temporary.name).resolve() / "animated.gif"
         Image.new("RGB", (2, 2), "red").save(static)
         first = Image.new("RGB", (2, 2), "red")
         second = Image.new("RGB", (2, 2), "blue")

@@ -74,7 +74,7 @@ def make_panel(cancel_event=None):
 class AnimationHandlingTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.source = self.root / "animated.gif"
         make_animation(self.source)
 

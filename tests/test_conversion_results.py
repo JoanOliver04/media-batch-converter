@@ -101,7 +101,7 @@ class BatchSummaryTests(unittest.TestCase):
 
     def test_preexisting_output_is_not_counted(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            old = Path(temporary) / "old.webp"
+            old = Path(temporary).resolve() / "old.webp"
             old.write_bytes(b"x" * 5000)
             summary = BatchSummary(
                 1, (result("current", ResultStatus.CONVERTED, 100, 40),), 1

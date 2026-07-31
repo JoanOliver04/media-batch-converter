@@ -47,7 +47,7 @@ class RuntimeEnvironmentTests(unittest.TestCase):
 
     def test_ffmpeg_resolution_prefers_bundled_then_provider_then_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             bundled = root / "ffmpeg" / "ffmpeg.exe"
             bundled.parent.mkdir()
             bundled.write_bytes(b"exe")
@@ -122,12 +122,11 @@ class RuntimeEnvironmentTests(unittest.TestCase):
 
     def test_packaged_resource_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            with patch.object(
-                runtime_environment.sys, "_MEIPASS", temporary, create=True
-            ):
-                self.assertEqual(
-                    resource_path("asset.txt"), Path(temporary) / "asset.txt"
-                )
+            # resource_path no resuelve la ruta, así que ambos lados parten del
+            # mismo valor: en Windows el temporal puede llegar en forma 8.3.
+            bundle = str(Path(temporary).resolve())
+            with patch.object(runtime_environment.sys, "_MEIPASS", bundle, create=True):
+                self.assertEqual(resource_path("asset.txt"), Path(bundle) / "asset.txt")
 
     def test_source_has_no_automatic_pip_invocation(self) -> None:
         project = Path(__file__).resolve().parent.parent

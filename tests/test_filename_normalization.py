@@ -67,7 +67,7 @@ class FilenameNormalizationTests(unittest.TestCase):
 
     def test_existing_file_policies_apply_to_normalized_collision(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             first = root / "My-File.png"
             second = root / "My File.jpg"
             first.write_bytes(b"first")

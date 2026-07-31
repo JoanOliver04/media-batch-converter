@@ -142,7 +142,7 @@ class VideoBatchTests(unittest.TestCase):
 
     def test_crop_conversion_accepts_source_without_audio_stream(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             source = root / "silent vídeo.mp4"
             source.write_bytes(b"source")
             panel = self.make_panel()
@@ -187,7 +187,7 @@ class VideoBatchTests(unittest.TestCase):
 
     def test_cancellation_cleans_temporary_output(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             source = root / "video.mp4"
             source.write_bytes(b"source")
             panel = self.make_panel()

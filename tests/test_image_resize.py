@@ -85,7 +85,7 @@ class ResizePipelineTests(unittest.TestCase):
         )
         source.seek(0)
         with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary) / "animation.webp"
+            output = Path(temporary).resolve() / "animation.webp"
             with Image.open(source) as animated:
                 panel = ImagePanel.__new__(ImagePanel)
                 panel.save_image(

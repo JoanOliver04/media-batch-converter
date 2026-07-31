@@ -38,7 +38,7 @@ class PerformanceContractTests(unittest.TestCase):
             root_logger.removeHandler(handler)
         try:
             with tempfile.TemporaryDirectory() as temporary:
-                destination = Path(temporary) / "application.log"
+                destination = Path(temporary).resolve() / "application.log"
                 self.assertEqual(configure_logging(destination), destination)
                 try:
                     raise PermissionError("destination locked")

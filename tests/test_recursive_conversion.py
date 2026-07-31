@@ -41,7 +41,7 @@ class InterfaceContractTests(unittest.TestCase):
 class DiscoveryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -113,7 +113,7 @@ class DiscoveryTests(unittest.TestCase):
 class ImageBatchTests(unittest.TestCase):
     def test_nested_structure_and_invalid_file_do_not_stop_batch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             valid = root / "grupo á" / "same.png"
             invalid = root / "otro grupo" / "same.png"
             valid.parent.mkdir(parents=True)
@@ -162,7 +162,7 @@ class ImageBatchTests(unittest.TestCase):
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
             first = root / "My-File.png"
             second = root / "My File.jpg"
             Image.new("RGB", (4, 4), "red").save(first)

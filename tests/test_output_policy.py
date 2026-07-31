@@ -20,7 +20,7 @@ from output_policy import (
 class OutputPolicyTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.source = self.root / "source.png"
         self.target = self.root / "output.webp"
         self.source.write_bytes(b"source")

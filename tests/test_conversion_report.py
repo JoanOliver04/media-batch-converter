@@ -47,7 +47,7 @@ class ImmediateRoot:
 class ConversionReportTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.output_root = self.root / "converted"
         self.output_root.mkdir()
         self.now = datetime(2026, 7, 22, 15, 45, 30, tzinfo=timezone.utc)
