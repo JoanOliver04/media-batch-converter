@@ -6,6 +6,7 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 ### Added
 
+- `tools/screenshot.py`, which regenerates the README screenshots reproducibly and without touching the developer's settings.
 - Dark instrument-style interface with a single amber accent, monospaced numeric readouts and a themed summary window and diagnostics console, all defined in `ui/theme.py`.
 - Language selector for Spanish and English, applied immediately without restarting and persisted with the local settings.
 - Message catalogues under `locales/`, with tests that fail when a catalogue is missing a key or a format placeholder.

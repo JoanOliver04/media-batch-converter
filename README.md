@@ -86,6 +86,32 @@ Everything visual is defined in `ui/theme.py`. Changing the palette there
 restyles the whole application, including the summary window and the
 diagnostics console.
 
+## Screenshots
+
+The images above are generated, not taken by hand:
+
+```powershell
+python tools/screenshot.py --all
+```
+
+The tool builds the application in-process, so the tab, language and preset are
+chosen directly rather than by clicking, and every run produces the same image.
+It captures with `PrintWindow`, which asks the window to draw itself into an
+offscreen bitmap: nothing else on the desktop can end up in the picture and the
+window does not need to be in front. Settings are redirected to a temporary
+folder, so running it never disturbs your own preferences.
+
+Single captures accept a tab, a language and a preset:
+
+```powershell
+python tools/screenshot.py --tab video --language es --preset webm_vp9 --output shot.png
+```
+
+`--scaling` renders the interface as a high-DPI user sees it, which is useful to
+check the layout at 150% or 200%. It enlarges the interface, not the image: the
+capture is the window's real pixels, so its resolution is capped by the display.
+Native dialogs and open dropdowns are separate windows and do not appear.
+
 ## Language
 
 The interface ships in Spanish and English. Pick one from the **Idioma / Language**
@@ -196,6 +222,7 @@ Tests cover pure calculations, error and collision policies, recursive batches, 
 
 ```text
 run_app.py                    Safe launcher and dependency checks
+tools/screenshot.py           Reproducible application screenshots
 i18n.py                       Active language and message lookup
 locales/                      One message catalogue per language (es, en)
 ui/                           Tkinter presentation layer
