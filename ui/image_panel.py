@@ -722,7 +722,7 @@ class ImagePanel(ConverterPanel):
                 self._finish(batch, results, discovery_errors, cancelled=True)
                 return
             self.report_progress(index, len(files), file.name)
-        self.root.after(0, self.status.set, "Finalizando lote…")
+        self.root.after(0, self.status.set, t("ui.status.finalizing"))
         self._finish(
             batch, results, discovery_errors, cancelled=self.cancel_event.is_set()
         )

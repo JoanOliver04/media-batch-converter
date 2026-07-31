@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,7 +34,13 @@ class LanguageSelectorTests(unittest.TestCase):
         self.addCleanup(set_language, DEFAULT_LANGUAGE)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.settings_path = Path(self.temporary.name).resolve() / "settings.json"
+        # Redirigir la carpeta de configuración: los paneles construyen su propio
+        # SettingsStore, así que parchear solo el de ConverterApp dejaría que los
+        # tests escribieran en los ajustes reales del usuario.
+        for variable in ("APPDATA", "XDG_CONFIG_HOME"):
+            previous = os.environ.get(variable)
+            os.environ[variable] = self.temporary.name
+            self.addCleanup(self._restore_environment, variable, previous)
         try:
             self.root = Tk()
             self.root.withdraw()
@@ -41,16 +48,17 @@ class LanguageSelectorTests(unittest.TestCase):
             self.skipTest(f"Tk unavailable: {error}")
         self.addCleanup(self.root.destroy)
 
+    @staticmethod
+    def _restore_environment(variable: str, previous: str | None) -> None:
+        if previous is None:
+            os.environ.pop(variable, None)
+        else:
+            os.environ[variable] = previous
+
     def build(self) -> ConverterApp:
-        store = SettingsStore(self.settings_path)
-        with (
-            patch("ui.app.SettingsStore", return_value=store),
-            patch(
-                "ui.app.resolve_ffmpeg",
-                return_value=Mock(
-                    path=Path("ffmpeg"), version="test", source="bundled"
-                ),
-            ),
+        with patch(
+            "ui.app.resolve_ffmpeg",
+            return_value=Mock(path=Path("ffmpeg"), version="test", source="bundled"),
         ):
             return ConverterApp(self.root)
 
@@ -103,7 +111,7 @@ class LanguageSelectorTests(unittest.TestCase):
     def test_choice_is_persisted_and_restored(self) -> None:
         app = self.build()
         self.select(app, "English")
-        self.assertEqual(SettingsStore(self.settings_path).load_language(), "en")
+        self.assertEqual(SettingsStore().load_language(), "en")
 
         set_language(DEFAULT_LANGUAGE)
         restored = self.build()

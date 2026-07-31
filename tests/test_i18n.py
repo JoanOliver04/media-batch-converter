@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ast
 import re
 import unittest
+from pathlib import Path
 
 import i18n
 from i18n import (
@@ -49,6 +51,199 @@ class CatalogueConsistencyTests(unittest.TestCase):
             if value == ENGLISH[key] and len(value) > 24
         }
         self.assertEqual(shared, set(), "hay textos largos sin traducir al inglés")
+
+
+class CatalogueUsageTests(unittest.TestCase):
+    """Una clave que nadie usa suele significar que el literal sigue
+    incrustado en el código y no se traduce."""
+
+    PROJECT = Path(__file__).resolve().parent.parent
+    #: Se construyen con f-string desde el preset_id, no como literal.
+    DYNAMIC_PREFIXES = ("preset.",)
+
+    def sources(self) -> list[Path]:
+        return [*self.PROJECT.glob("*.py"), *(self.PROJECT / "ui").glob("*.py")]
+
+    def literal_keys(self) -> set[str]:
+        keys: set[str] = set()
+        for path in self.sources():
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "t"
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)
+                ):
+                    keys.add(node.args[0].value)
+        return keys
+
+    def indirect_keys(self) -> set[str]:
+        """Claves que llegan a t() sin ser su primer argumento literal.
+
+        Cubre las guardadas en constantes y las elegidas con un condicional
+        dentro de la propia llamada.
+        """
+        pattern = re.compile(r'"((?:ui|summary)\.[a-z0-9_.]+)"')
+        found: set[str] = set()
+        for path in self.sources():
+            found |= set(pattern.findall(path.read_text(encoding="utf-8")))
+        return found
+
+    def test_every_key_is_reachable_from_the_code(self) -> None:
+        reachable = self.literal_keys() | self.indirect_keys()
+        orphans = sorted(
+            key
+            for key in SPANISH
+            if key not in reachable and not key.startswith(self.DYNAMIC_PREFIXES)
+        )
+        self.assertEqual(orphans, [], "claves de catálogo que nadie usa")
+
+    def test_every_key_used_by_the_code_exists(self) -> None:
+        unknown = sorted(key for key in self.literal_keys() if key not in SPANISH)
+        self.assertEqual(unknown, [], "t() usa claves que no están en el catálogo")
+
+
+class HardcodedTextTests(unittest.TestCase):
+    """El texto visible vive en los catálogos, nunca dentro de los módulos.
+
+    Comprueba la estructura en vez de adivinar el idioma: cualquier literal
+    que llegue a un destino visible sin pasar por `t()` es un fallo, aunque
+    esté escrito sin tildes.
+    """
+
+    PROJECT = Path(__file__).resolve().parent.parent
+    #: Llamadas que muestran texto al usuario.
+    SINKS = {"showerror", "showwarning", "showinfo", "set", "title", "insert"}
+    #: Argumentos con nombre que acaban en pantalla.
+    VISIBLE_KEYWORDS = {"text", "title", "value", "values"}
+    #: Constructores que llevan un mensaje destinado al usuario.
+    MESSAGE_CONSTRUCTORS = {
+        "ErrorDescription",
+        "ImageWarning",
+        "_warning",
+        "animation_warning",
+    }
+    #: Valores técnicos que no deben traducirse.
+    TECHNICAL = {
+        "44100",
+        "48000",
+        "1024",
+        "black",
+        "libx264",
+        "libvpx-vp9",
+        "mpeg4",
+        "aac",
+        "libopus",
+        "libmp3lame",
+        "yuv420p",
+        "Español",
+        "English",
+        # opciones de Tk, no texto
+        "readonly",
+        "disabled",
+        "normal",
+        "word",
+        "both",
+        "left",
+        "right",
+        "determinate",
+        "indeterminate",
+        "write",
+        "Segoe UI",
+        "Consolas",
+        "1.0",
+        "end",
+        "end-1c",
+        "*.*",
+        "all",
+        "units",
+        "pages",
+        "break",
+        "nw",
+    }
+    #: Invariantes internas: señalan un uso incorrecto de la API, no llegan al
+    #: usuario tal cual (se presentan como «error inesperado», ya traducido).
+    INTERNAL_INVARIANTS = {
+        "chunk_size must be positive",
+        "max_length must allow the fallback basename",
+        "APP_VERSION must use major.minor.patch",
+        "A skipped output plan cannot be committed.",
+        "Automatic WebP mode must be resolved before encoding.",
+    }
+
+    def _is_offender(self, value: str) -> bool:
+        return (
+            len(value) > 3
+            and value not in SPANISH  # una clave de catálogo, no texto suelto
+            and value not in self.TECHNICAL
+            and value not in self.INTERNAL_INVARIANTS
+        )
+
+    @staticmethod
+    def _strings(nodes) -> list[ast.Constant]:
+        return [
+            n for n in nodes if isinstance(n, ast.Constant) and isinstance(n.value, str)
+        ]
+
+    def offenders(self) -> list[str]:
+        found: list[str] = []
+        sources = [*self.PROJECT.glob("*.py"), *(self.PROJECT / "ui").glob("*.py")]
+        for path in sources:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                # Mensajes de excepción, incluidos los elegidos con un
+                # condicional: raise RuntimeError(x if y else "texto")
+                if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
+                    nested = [n for arg in node.exc.args for n in ast.walk(arg)]
+                    for literal in self._strings(nested):
+                        if self._is_offender(literal.value):
+                            found.append(
+                                f"{path.name}:{literal.lineno}: {literal.value[:60]!r}"
+                            )
+                if not isinstance(node, ast.Call):
+                    continue
+                literals: list[ast.Constant] = []
+                name = (
+                    node.func.attr
+                    if isinstance(node.func, ast.Attribute)
+                    else getattr(node.func, "id", "")
+                )
+                # root.after(0, self.status.set, "texto")
+                if name == "after" or name in self.MESSAGE_CONSTRUCTORS:
+                    literals += self._strings(node.args)
+                if name in self.SINKS:
+                    literals += [
+                        a
+                        for a in node.args
+                        if isinstance(a, ast.Constant) and isinstance(a.value, str)
+                    ]
+                for keyword in node.keywords:
+                    if keyword.arg not in self.VISIBLE_KEYWORDS:
+                        continue
+                    values = (
+                        keyword.value.elts
+                        if isinstance(keyword.value, (ast.Tuple, ast.List))
+                        else [keyword.value]
+                    )
+                    literals += [
+                        v
+                        for v in values
+                        if isinstance(v, ast.Constant) and isinstance(v.value, str)
+                    ]
+                for literal in literals:
+                    if self._is_offender(literal.value):
+                        found.append(
+                            f"{path.name}:{literal.lineno}: {literal.value[:60]!r}"
+                        )
+        return found
+
+    def test_visible_text_never_bypasses_the_catalogue(self) -> None:
+        self.assertEqual(
+            self.offenders(), [], "texto visible incrustado; muévelo a locales/"
+        )
 
 
 class PresetCoverageTests(unittest.TestCase):

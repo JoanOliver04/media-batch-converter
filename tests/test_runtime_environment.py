@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -137,7 +138,31 @@ class RuntimeEnvironmentTests(unittest.TestCase):
         self.assertNotIn('"pip", "install"', combined)
 
 
-class AvailabilityUiTests(unittest.TestCase):
+class IsolatedSettingsMixin:
+    """Redirige la carpeta de configuración a un temporal.
+
+    Construir un panel real persiste preset y política, así que sin esto los
+    tests reescribirían los ajustes reales del usuario.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        for variable in ("APPDATA", "XDG_CONFIG_HOME"):
+            previous = os.environ.get(variable)
+            os.environ[variable] = temporary.name
+            self.addCleanup(self._restore_environment, variable, previous)
+
+    @staticmethod
+    def _restore_environment(variable: str, previous: str | None) -> None:
+        if previous is None:
+            os.environ.pop(variable, None)
+        else:
+            os.environ[variable] = previous
+
+
+class AvailabilityUiTests(IsolatedSettingsMixin, unittest.TestCase):
     def test_images_remain_enabled_when_ffmpeg_is_missing(self) -> None:
         try:
             root = Tk()

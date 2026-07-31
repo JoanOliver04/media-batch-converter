@@ -131,7 +131,7 @@ class FFmpegPanel(ConverterPanel):
                 self._finish(batch, results, initial_errors, cancelled=True)
                 return
             self.report_progress(index, batch.total, source.name)
-        self.root.after(0, self.status.set, "Finalizando lote…")
+        self.root.after(0, self.status.set, t("ui.status.finalizing"))
         self._finish(
             batch, results, initial_errors, cancelled=self.cancel_event.is_set()
         )
