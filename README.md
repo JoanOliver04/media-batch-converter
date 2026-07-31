@@ -31,6 +31,7 @@ Desktop application for converting and optimizing images, audio, and video indiv
 - Preserve supported animations, extract frames, or explicitly keep only the first frame.
 - Review validation warnings, progress, cancellation, and a final batch summary.
 - Switch the interface between Spanish and English at any time from the language selector.
+- Read dense settings comfortably in a dark, instrument-style interface built for long sessions.
 - Process everything locally. No media is uploaded.
 
 ## Supported formats
@@ -73,6 +74,17 @@ Outputs are created beside the sources in a `convertidos_<format>` directory. Ex
 - Convert a recursive image tree: Images → select folder → keep Include subfolders enabled.
 - Create an audio master: Audio → select source → WAV master preset.
 - Create a compatible MP4: Video → select source → High quality 1080p preset.
+
+## Interface
+
+The interface is a dark graphite console with a single amber accent reserved for
+the active path: the primary action, the selected tab, progress and focus. A
+muted teal marks verified results. Numbers — quality, sizes, dimensions — are set
+in a monospaced face so they line up and can be compared at a glance.
+
+Everything visual is defined in `ui/theme.py`. Changing the palette there
+restyles the whole application, including the summary window and the
+diagnostics console.
 
 ## Language
 
@@ -194,6 +206,7 @@ ui/                           Tkinter presentation layer
   audio_panel.py              Audio tab
   video_panel.py              Video tab
   formats.py                  Supported formats and output path resolution
+  theme.py                    Palette, typography and ttk styling
   widgets.py                  Scrollable tab viewport
   diagnostics.py              Diagnostics tab
 batch_processing.py          Recursive discovery
@@ -207,7 +220,7 @@ version.py                   Public name and version source
 tests/                       Automated test suite
 ```
 
-Audio and video share `FFmpegPanel` rather than one inheriting from the other. Code identifiers and documentation are English; user-facing text lives in `locales/`, never inline in the modules.
+Audio and video share `FFmpegPanel` rather than one inheriting from the other. Code identifiers and documentation are English; user-facing text lives in `locales/`, never inline in the modules, and every color and font comes from `ui/theme.py`.
 
 ## Troubleshooting
 

@@ -17,6 +17,7 @@ from runtime_environment import resolve_ffmpeg
 from ui.audio_panel import AudioPanel
 from ui.diagnostics import DiagnosticsPanel
 from ui.image_panel import ImagePanel
+from ui.theme import apply_theme
 from ui.video_panel import VideoPanel
 from ui.widgets import ScrollableTab
 from version import APP_NAME
@@ -35,18 +36,27 @@ class ConverterApp:
         self.root = root
         self.settings_store = SettingsStore()
         set_language(self.settings_store.load_language())
+        apply_theme(root)
         root.title(APP_NAME)
-        root.geometry("900x780")
-        root.minsize(760, 740)
+        root.geometry("980x860")
+        root.minsize(820, 720)
         self.container = ttk.Frame(root)
         self.container.pack(fill="both", expand=True)
         self.panels: tuple = ()
         self._build()
 
     def _build(self) -> None:
-        header = ttk.Frame(self.container, padding=(12, 8, 12, 0))
+        header = ttk.Frame(
+            self.container, style="Surface.TFrame", padding=(20, 14, 20, 0)
+        )
         header.pack(fill="x")
-        ttk.Label(header, text=t("ui.label.language")).pack(side="right", padx=(0, 6))
+        ttk.Label(header, text=APP_NAME.upper(), style="Wordmark.TLabel").pack(
+            side="left"
+        )
+        ttk.Label(header, text=t("ui.header.tagline"), style="Tagline.TLabel").pack(
+            side="left", padx=(12, 0)
+        )
+
         self._language_by_display = {
             language_display_name(language): language
             for language in available_languages()
@@ -55,11 +65,19 @@ class ConverterApp:
             header,
             values=tuple(self._language_by_display),
             state="readonly",
-            width=10,
+            width=9,
         )
         self.language_selector.set(language_display_name(current_language()))
+        # El combo se empaqueta antes que su etiqueta: con side="right" el
+        # primero queda más a la derecha, así se lee "Idioma: [English]".
         self.language_selector.pack(side="right")
+        ttk.Label(header, text=t("ui.label.language"), style="HeaderLabel.TLabel").pack(
+            side="right", padx=(0, 8)
+        )
         self.language_selector.bind("<<ComboboxSelected>>", self._language_selected)
+
+        rule = ttk.Frame(self.container, style="Line.TFrame", height=1)
+        rule.pack(fill="x", pady=(14, 0))
 
         notebook = ttk.Notebook(self.container)
         notebook.pack(fill="both", expand=True)

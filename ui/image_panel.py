@@ -155,7 +155,10 @@ class ImagePanel(ConverterPanel):
             row=1, column=1, padx=(0, 16), pady=(10, 0), sticky="w"
         )
         ttk.Label(
-            self.options_frame, textvariable=self.preset_description, wraplength=390
+            self.options_frame,
+            textvariable=self.preset_description,
+            wraplength=390,
+            style="Muted.TLabel",
         ).grid(row=1, column=2, columnspan=3, pady=(10, 0), sticky="w")
         self.preset_selector.bind("<<ComboboxSelected>>", self.apply_selected_preset)
 
@@ -182,9 +185,12 @@ class ImagePanel(ConverterPanel):
                 variable=self.webp_mode,
                 command=self.update_webp_controls,
             ).grid(row=0, column=column, padx=(0, 14), sticky="w")
-        ttk.Label(self.webp_frame, textvariable=self.webp_help, wraplength=680).grid(
-            row=1, column=0, columnspan=3, sticky="w", pady=(5, 0)
-        )
+        ttk.Label(
+            self.webp_frame,
+            textvariable=self.webp_help,
+            wraplength=680,
+            style="Muted.TLabel",
+        ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(5, 0))
         self.format_selector.bind("<<ComboboxSelected>>", self.update_webp_controls)
         for row in range(7, 4, -1):
             for widget in self.grid_slaves(row=row):
@@ -223,7 +229,10 @@ class ImagePanel(ConverterPanel):
         )
         self.never_upscale_check.grid(row=1, column=4, padx=(12, 0), sticky="w")
         ttk.Label(
-            self.resize_box, textvariable=self.resize_preview, wraplength=700
+            self.resize_box,
+            textvariable=self.resize_preview,
+            wraplength=700,
+            style="Muted.TLabel",
         ).grid(row=2, column=0, columnspan=6, sticky="w", pady=(6, 0))
         self.resize_selector.bind("<<ComboboxSelected>>", self.resize_mode_changed)
         for variable in (
@@ -260,6 +269,7 @@ class ImagePanel(ConverterPanel):
             self.animation_frame,
             text=t("ui.animation.help_global"),
             wraplength=700,
+            style="Muted.TLabel",
         )
         self.animation_help.grid(row=1, column=0, columnspan=3, pady=(5, 0), sticky="w")
         self.update_animation_controls()

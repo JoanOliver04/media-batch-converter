@@ -103,8 +103,12 @@ class HighDpiUiTests(IsolatedSettingsMixin, unittest.TestCase):
                 ):
                     ConverterApp(root)
                 root.update_idletasks()
-                self.assertLessEqual(root.winfo_reqwidth(), 900)
-                self.assertLessEqual(root.winfo_reqheight(), 780)
+                # El tamaño natural debe caber en la geometría declarada, o la
+                # ventana aparecería recortada antes de poder desplazarse.
+                declared = root.geometry().split("+")[0]
+                width, height = (int(value) for value in declared.split("x"))
+                self.assertLessEqual(root.winfo_reqwidth(), width)
+                self.assertLessEqual(root.winfo_reqheight(), height)
                 notebook = find_notebook(root)
                 tabs = [notebook.nametowidget(tab) for tab in notebook.tabs()[:3]]
                 self.assertTrue(all(isinstance(tab, ScrollableTab) for tab in tabs))

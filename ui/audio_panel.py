@@ -18,6 +18,7 @@ from ui.formats import AUDIO_EXTENSIONS, AUDIO_FORMATS
 
 class AudioPanel(FFmpegPanel):
     MEDIA_TYPE = "audio"
+    NAME_EXAMPLE_KEY = "ui.output_name.example.audio"
 
     def __init__(self, parent, root: Tk) -> None:
         super().__init__(
@@ -53,6 +54,7 @@ class AudioPanel(FFmpegPanel):
             self.options_frame,
             textvariable=self.audio_preset_description,
             wraplength=390,
+            style="Muted.TLabel",
         ).grid(row=1, column=2, columnspan=3, pady=(10, 0), sticky="w")
         self.audio_preset_selector.bind(
             "<<ComboboxSelected>>", self.apply_selected_audio_preset
@@ -95,6 +97,7 @@ class AudioPanel(FFmpegPanel):
         ttk.Label(
             self.audio_advanced,
             text=t("ui.audio.no_loudness_note"),
+            style="Muted.TLabel",
         ).grid(row=1, column=0, columnspan=6, pady=(6, 0), sticky="w")
 
         for variable in (

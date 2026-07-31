@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from tkinter import Canvas, Tk, ttk
 
+from ui.theme import PANEL
+
 
 class ScrollableTab(ttk.Frame):
     """Keyboard-accessible viewport that prevents clipping at high DPI."""
 
     def __init__(self, parent, panel_type, root: Tk) -> None:
         super().__init__(parent)
-        self.canvas = Canvas(self, highlightthickness=0, takefocus=True)
+        self.canvas = Canvas(
+            self, highlightthickness=0, takefocus=True, background=PANEL
+        )
         vertical = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
         horizontal = ttk.Scrollbar(self, orient="horizontal", command=self.canvas.xview)
         self.canvas.configure(

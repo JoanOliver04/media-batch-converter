@@ -9,7 +9,16 @@ import time
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from tkinter import BooleanVar, IntVar, StringVar, Tk, filedialog, messagebox, ttk
+from tkinter import (
+    BooleanVar,
+    IntVar,
+    Scale,
+    StringVar,
+    Tk,
+    filedialog,
+    messagebox,
+    ttk,
+)
 
 from batch_processing import discover_files
 from conversion_report import (
@@ -26,6 +35,7 @@ from i18n import t
 from output_policy import OutputPolicy
 from presets import SettingsStore
 from summary_dialog import show_summary
+from ui import theme
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
@@ -38,6 +48,8 @@ class ConverterPanel(ttk.Frame):
     """Controles compartidos por los tres tipos de conversión."""
 
     MEDIA_TYPE = "media"
+    #: Ejemplo de renombrado; cada panel muestra el de su propio medio.
+    NAME_EXAMPLE_KEY = "ui.output_name.example.image"
 
     def __init__(
         self,
@@ -69,7 +81,7 @@ class ConverterPanel(ttk.Frame):
         self.normalize_filenames = BooleanVar(
             value=self.settings_store.load_normalize_filenames()
         )
-        self.output_name_preview = StringVar(value=t("ui.output_name.example"))
+        self.output_name_preview = StringVar(value=t(self.NAME_EXAMPLE_KEY))
         self.generate_report = BooleanVar(
             value=self.settings_store.load_generate_report()
         )
@@ -95,7 +107,7 @@ class ConverterPanel(ttk.Frame):
         }
         self.columnconfigure(0, weight=1)
 
-        ttk.Label(self, text=title, font=("Segoe UI", 18, "bold")).grid(
+        ttk.Label(self, text=title, style="Title.TLabel").grid(
             row=0, column=0, sticky="w", pady=(0, 18)
         )
         selection_row = ttk.Frame(self)
@@ -138,17 +150,34 @@ class ConverterPanel(ttk.Frame):
         ttk.Label(options, text=t("ui.label.quality")).grid(
             row=0, column=2, padx=(0, 10)
         )
-        self.slider = ttk.Scale(
+        # Scale clásico en vez de ttk: el trough de ttk.Scale ignora
+        # `troughcolor` en clam y se queda con el canal claro por defecto,
+        # que rompe el tema oscuro. El widget clásico sí es coloreable.
+        self.slider = Scale(
             options,
             from_=1,
             to=100,
+            orient="horizontal",
             variable=self.quality,
             command=lambda v: self.quality.set(round(float(v))),
+            showvalue=False,
+            troughcolor=theme.RAISED,
+            background=theme.SIGNAL,
+            activebackground=theme.SIGNAL_DIM,
+            highlightthickness=0,
+            borderwidth=0,
+            sliderrelief="flat",
+            sliderlength=20,
+            width=10,
         )
         self.slider.grid(row=0, column=3, sticky="ew")
-        ttk.Label(options, textvariable=self.quality, width=4, anchor="e").grid(
-            row=0, column=4, padx=(8, 0)
-        )
+        ttk.Label(
+            options,
+            textvariable=self.quality,
+            width=4,
+            anchor="e",
+            style="Readout.TLabel",
+        ).grid(row=0, column=4, padx=(8, 0))
         ttk.Label(options, text=t("ui.label.on_existing")).grid(
             row=2, column=0, padx=(0, 10), pady=(10, 0), sticky="w"
         )
@@ -164,9 +193,12 @@ class ConverterPanel(ttk.Frame):
         self.policy_selector.grid(
             row=2, column=1, padx=(0, 16), pady=(10, 0), sticky="w"
         )
-        ttk.Label(options, textvariable=self.output_policy_help, wraplength=390).grid(
-            row=2, column=2, columnspan=3, pady=(10, 0), sticky="w"
-        )
+        ttk.Label(
+            options,
+            textvariable=self.output_policy_help,
+            wraplength=390,
+            style="Muted.TLabel",
+        ).grid(row=2, column=2, columnspan=3, pady=(10, 0), sticky="w")
         self.policy_selector.bind("<<ComboboxSelected>>", self.output_policy_changed)
         self.output_policy_help.set(
             self._policy_help[OutputPolicy(self.output_policy.get())]
@@ -180,9 +212,12 @@ class ConverterPanel(ttk.Frame):
         self.normalize_check.grid(
             row=3, column=0, columnspan=2, pady=(10, 0), sticky="w"
         )
-        ttk.Label(options, textvariable=self.output_name_preview, wraplength=470).grid(
-            row=3, column=2, columnspan=3, pady=(10, 0), sticky="w"
-        )
+        ttk.Label(
+            options,
+            textvariable=self.output_name_preview,
+            wraplength=470,
+            style="Muted.TLabel",
+        ).grid(row=3, column=2, columnspan=3, pady=(10, 0), sticky="w")
         self.output_format.trace_add(
             "write", lambda *_args: self.update_output_name_preview()
         )
@@ -210,9 +245,9 @@ class ConverterPanel(ttk.Frame):
 
         self.progress = ttk.Progressbar(self, mode="determinate")
         self.progress.grid(row=4, column=0, sticky="ew", pady=(0, 10))
-        ttk.Label(self, textvariable=self.status, wraplength=700).grid(
-            row=5, column=0, sticky="w"
-        )
+        ttk.Label(
+            self, textvariable=self.status, wraplength=700, style="Muted.TLabel"
+        ).grid(row=5, column=0, sticky="w")
         actions = ttk.Frame(self)
         actions.grid(row=6, column=0, sticky="e", pady=(20, 0))
         self.cancel_button = ttk.Button(
@@ -220,7 +255,10 @@ class ConverterPanel(ttk.Frame):
         )
         self.cancel_button.grid(row=0, column=0, padx=(0, 8))
         self.convert_button = ttk.Button(
-            actions, text=t("ui.button.start"), command=self.start
+            actions,
+            text=t("ui.button.start"),
+            command=self.start,
+            style="Accent.TButton",
         )
         self.convert_button.grid(row=0, column=1)
 
@@ -252,7 +290,7 @@ class ConverterPanel(ttk.Frame):
             name = output_filename(selected, extension, self.normalize_filenames.get())
             self.output_name_preview.set(t("ui.output_name.preview", name=name))
         else:
-            self.output_name_preview.set(t("ui.output_name.example"))
+            self.output_name_preview.set(t(self.NAME_EXAMPLE_KEY))
 
     def report_settings_changed(self, _event=None) -> None:
         try:

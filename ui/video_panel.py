@@ -14,6 +14,7 @@ from video_encoding import VideoSettings, build_video_args, validate_video_setti
 
 class VideoPanel(FFmpegPanel):
     MEDIA_TYPE = "video"
+    NAME_EXAMPLE_KEY = "ui.output_name.example.video"
     #: Clave de traducción por código estable de FFmpeg. La etiqueta visible se
     #: resuelve al construir el panel, nunca se almacena.
     ASPECT_MODES = (
@@ -67,6 +68,7 @@ class VideoPanel(FFmpegPanel):
             self.options_frame,
             textvariable=self.video_preset_description,
             wraplength=390,
+            style="Muted.TLabel",
         ).grid(row=1, column=2, columnspan=3, pady=(10, 0), sticky="w")
         self.video_preset_selector.bind(
             "<<ComboboxSelected>>", self.apply_selected_video_preset
@@ -149,7 +151,10 @@ class VideoPanel(FFmpegPanel):
         )
         self.video_max_size_entry.grid(row=2, column=5, pady=(7, 0))
         ttk.Label(
-            self.video_advanced, textvariable=self.video_size_guidance, wraplength=650
+            self.video_advanced,
+            textvariable=self.video_size_guidance,
+            wraplength=650,
+            style="Muted.TLabel",
         ).grid(row=3, column=0, columnspan=7, pady=(7, 0), sticky="w")
 
         for variable in (

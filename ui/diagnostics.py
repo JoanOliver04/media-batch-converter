@@ -6,6 +6,7 @@ from tkinter import Text, Tk, ttk
 
 from i18n import t
 from runtime_environment import diagnostics_text
+from ui.theme import FONT_DATA, LINE, PANEL, SIGNAL, TEXT
 
 
 class DiagnosticsPanel(ttk.Frame):
@@ -15,7 +16,22 @@ class DiagnosticsPanel(ttk.Frame):
         ttk.Label(
             self, text=t("ui.diagnostics.heading"), font=("Segoe UI", 18, "bold")
         ).pack(anchor="w", pady=(0, 14))
-        self.text = Text(self, wrap="word", height=22, width=1)
+        self.text = Text(
+            self,
+            wrap="word",
+            height=22,
+            width=1,
+            font=FONT_DATA,
+            background=PANEL,
+            foreground=TEXT,
+            insertbackground=SIGNAL,
+            relief="solid",
+            borderwidth=1,
+            highlightthickness=0,
+            padx=14,
+            pady=12,
+        )
+        self.text.configure(highlightbackground=LINE)
         self.text.pack(fill="both", expand=True)
         actions = ttk.Frame(self)
         actions.pack(anchor="e", pady=(12, 0))

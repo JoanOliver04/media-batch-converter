@@ -167,6 +167,7 @@ MESSAGES: dict[str, str] = {
     "ui.tab.video": " Video ",
     "ui.tab.diagnostics": " Diagnostics ",
     "ui.label.language": "Language:",
+    "ui.header.tagline": "Local conversion · originals are never modified",
     # --- Interface: shared controls ----------------------------------------
     "ui.button.select_file": "Select file",
     "ui.button.select_folder": "Select folder",
@@ -273,7 +274,9 @@ MESSAGES: dict[str, str] = {
     "ui.status.cancelled": "Operation cancelled. {converted} file(s) converted.",
     "ui.status.finished": "Finished: {converted} converted, {skipped} skipped, {failed} failed.",
     "ui.status.aborted": "The conversion stopped because of an error.",
-    "ui.output_name.example": "Example: Sample Image.png → sample_image.webp",
+    "ui.output_name.example.image": "Example: Sample Image.png → sample_image.webp",
+    "ui.output_name.example.audio": "Example: My Track.wav → my_track.mp3",
+    "ui.output_name.example.video": "Example: My Clip.mov → my_clip.mp4",
     "ui.output_name.preview": "Output name: {name}",
     "ui.dialog.select_file_title": "Select a file",
     "ui.dialog.select_folder_title": "Select a folder",

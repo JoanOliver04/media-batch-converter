@@ -8,6 +8,7 @@ from tkinter.scrolledtext import ScrolledText
 
 from conversion_results import BatchSummary, ResultStatus, summary_text
 from i18n import t
+from ui.theme import FONT_DATA, PANEL, SIGNAL, SURFACE, TEXT
 
 DETAIL_LIMIT = 50
 
@@ -23,13 +24,26 @@ def show_summary(
     window.geometry("720x560")
     window.minsize(560, 420)
     window.transient(parent)
+    window.configure(background=SURFACE)
 
     frame = ttk.Frame(window, padding=18)
     frame.pack(fill="both", expand=True)
-    ttk.Label(
-        frame, text=t("summary.window_title"), font=("Segoe UI", 16, "bold")
-    ).pack(anchor="w", pady=(0, 10))
-    text = ScrolledText(frame, wrap="word", height=22, font=("Consolas", 10))
+    ttk.Label(frame, text=t("summary.window_title"), style="Title.TLabel").pack(
+        anchor="w", pady=(0, 12)
+    )
+    text = ScrolledText(
+        frame,
+        wrap="word",
+        height=22,
+        font=FONT_DATA,
+        background=PANEL,
+        foreground=TEXT,
+        insertbackground=SIGNAL,
+        relief="flat",
+        borderwidth=0,
+        padx=14,
+        pady=12,
+    )
     text.pack(fill="both", expand=True)
 
     body = summary_text(summary) + f"\n{t('summary.output_folder')}: {output_root}\n"
