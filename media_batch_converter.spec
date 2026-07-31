@@ -12,7 +12,9 @@ a = Analysis(
     pathex=[str(project)],
     binaries=[(str(ffmpeg), "ffmpeg")],
     datas=[],
-    hiddenimports=collect_submodules("PIL"),
+    hiddenimports=collect_submodules("PIL")
+    + collect_submodules("locales")
+    + collect_submodules("ui"),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

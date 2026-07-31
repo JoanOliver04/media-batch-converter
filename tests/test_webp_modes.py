@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from png_a_webp import PanelImagen
+from ui.image_panel import ImagePanel
 from webp_encoding import (
     WebPMode,
     choose_automatic_webp_mode,
@@ -77,7 +77,7 @@ class WebPDecisionTests(unittest.TestCase):
 class WebPEncodingTests(unittest.TestCase):
     def test_ico_contains_standard_favicon_sizes_and_transparency(self) -> None:
         image = Image.new("RGBA", (256, 256), (12, 34, 56, 78))
-        converted, options, mode = PanelImagen.preparar_estatica(
+        converted, options, mode = ImagePanel.prepare_static(
             image, "ICO", 50, "logo.png"
         )
 
@@ -104,7 +104,7 @@ class WebPEncodingTests(unittest.TestCase):
 
     def test_lossy_uses_quality_and_preserves_alpha(self) -> None:
         image = detailed_rgba((32, 32), alpha=77)
-        converted, options, mode = PanelImagen.preparar_estatica(
+        converted, options, mode = ImagePanel.prepare_static(
             image, "WEBP", 73, "image.png", WebPMode.LOSSY
         )
         self.assertEqual(mode, WebPMode.LOSSY)
@@ -116,7 +116,7 @@ class WebPEncodingTests(unittest.TestCase):
 
     def test_lossless_is_true_lossless_and_ignores_quality(self) -> None:
         image = Image.new("RGBA", (16, 16), (12, 34, 56, 78))
-        converted, options, mode = PanelImagen.preparar_estatica(
+        converted, options, mode = ImagePanel.prepare_static(
             image, "WEBP", 5, "icon.png", WebPMode.LOSSLESS
         )
         self.assertEqual(mode, WebPMode.LOSSLESS)
@@ -138,7 +138,7 @@ class WebPEncodingTests(unittest.TestCase):
         self.assertFalse(webp_controls_visible("PNG"))
 
     def test_batch_can_select_different_automatic_modes(self) -> None:
-        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
+        with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             jpeg = root / "photo.jpg"
             palette = root / "icon.png"

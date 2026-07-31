@@ -8,9 +8,9 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from i18n import normalized_language, t
 from video_encoding import VideoSettings
 from webp_encoding import WebPMode
-
 
 CUSTOM_PRESET_ID = "custom"
 
@@ -28,9 +28,14 @@ class AudioSettings:
 
 @dataclass(frozen=True, slots=True)
 class ConversionPreset:
+    """Un preset.
+
+    El nombre y la descripción visibles no se almacenan: se derivan del
+    `preset_id` y se resuelven en cada acceso, de modo que siguen al idioma
+    activo sin tener que reconstruir los presets.
+    """
+
     preset_id: str
-    display_name: str
-    description: str
     media_category: str
     output_format: str
     quality: int | None = None
@@ -39,12 +44,18 @@ class ConversionPreset:
     audio_settings: AudioSettings | None = None
     video_settings: VideoSettings | None = None
 
+    @property
+    def display_name(self) -> str:
+        return t(f"preset.{self.preset_id}.name")
+
+    @property
+    def description(self) -> str:
+        return t(f"preset.{self.preset_id}.description")
+
 
 IMAGE_PRESETS = (
     ConversionPreset(
         "high_quality_illustration",
-        "Ilustración de alta calidad",
-        "WebP detallado con buena reducción de tamaño.",
         "image",
         "WebP",
         90,
@@ -52,8 +63,6 @@ IMAGE_PRESETS = (
     ),
     ConversionPreset(
         "general_mobile_asset",
-        "Recurso móvil general",
-        "Equilibrio automático para recursos de uso general.",
         "image",
         "WebP",
         88,
@@ -61,8 +70,6 @@ IMAGE_PRESETS = (
     ),
     ConversionPreset(
         "large_background",
-        "Fondo grande",
-        "Compresión eficiente para imágenes de fondo extensas.",
         "image",
         "WebP",
         82,
@@ -70,8 +77,6 @@ IMAGE_PRESETS = (
     ),
     ConversionPreset(
         "transparent_ui_asset",
-        "Recurso de interfaz transparente",
-        "WebP sin pérdida para bordes y transparencias exactos.",
         "image",
         "WebP",
         None,
@@ -79,8 +84,6 @@ IMAGE_PRESETS = (
     ),
     ConversionPreset(
         "thumbnail",
-        "Miniatura",
-        "WebP compacto; el redimensionado se podrá configurar más adelante.",
         "image",
         "WebP",
         78,
@@ -88,8 +91,6 @@ IMAGE_PRESETS = (
     ),
     ConversionPreset(
         "lossless_archive",
-        "Archivo sin pérdida",
-        "PNG con optimización máxima y sin pérdida de calidad.",
         "image",
         "PNG",
         None,
@@ -100,40 +101,30 @@ IMAGE_PRESETS = (
 AUDIO_PRESETS = (
     ConversionPreset(
         "runtime_music",
-        "Música de ejecución",
-        "AAC-LC estéreo a 48 kHz y 192 kbps para música de uso final.",
         "audio",
         "M4A",
         audio_settings=AudioSettings("aac", 48_000, 2, 192, "bitrate", "aac_low"),
     ),
     ConversionPreset(
         "runtime_ambience",
-        "Ambiente de ejecución",
-        "AAC-LC estéreo a 48 kHz y 160 kbps para ambientes.",
         "audio",
         "M4A",
         audio_settings=AudioSettings("aac", 48_000, 2, 160, "bitrate", "aac_low"),
     ),
     ConversionPreset(
         "runtime_sound_effect",
-        "Efecto de sonido",
-        "AAC-LC mono a 48 kHz y 128 kbps; puede cambiarse a estéreo.",
         "audio",
         "M4A",
         audio_settings=AudioSettings("aac", 48_000, 1, 128, "bitrate", "aac_low"),
     ),
     ConversionPreset(
         "master_wav",
-        "Máster WAV",
-        "PCM firmado de 24 bits a 48 kHz; conserva los canales de origen.",
         "audio",
         "WAV",
         audio_settings=AudioSettings("pcm_s24le", 48_000, None, None, "lossless"),
     ),
     ConversionPreset(
         "voice_dialogue",
-        "Voz o diálogo",
-        "AAC-LC mono a 48 kHz y 96 kbps para voz.",
         "audio",
         "M4A",
         audio_settings=AudioSettings("aac", 48_000, 1, 96, "bitrate", "aac_low"),
@@ -143,8 +134,6 @@ AUDIO_PRESETS = (
 VIDEO_PRESETS = (
     ConversionPreset(
         "in_app_720p",
-        "Uso interno 720p",
-        "H.264/AAC hasta 1280 × 720, 30 FPS y CRF 23.",
         "video",
         "MP4",
         video_settings=VideoSettings(
@@ -153,8 +142,6 @@ VIDEO_PRESETS = (
     ),
     ConversionPreset(
         "high_quality_1080p",
-        "Alta calidad 1080p",
-        "H.264/AAC hasta 1920 × 1080, 30 FPS y CRF 21.",
         "video",
         "MP4",
         video_settings=VideoSettings(
@@ -163,8 +150,6 @@ VIDEO_PRESETS = (
     ),
     ConversionPreset(
         "vertical_social",
-        "Social vertical",
-        "H.264/AAC a 1080 × 1920 con bandas, 30 FPS y CRF 22.",
         "video",
         "MP4",
         video_settings=VideoSettings(
@@ -173,8 +158,6 @@ VIDEO_PRESETS = (
     ),
     ConversionPreset(
         "horizontal_trailer",
-        "Tráiler horizontal",
-        "H.264/AAC a 1920 × 1080, 30 FPS y calidad alta.",
         "video",
         "MP4",
         video_settings=VideoSettings(
@@ -183,8 +166,6 @@ VIDEO_PRESETS = (
     ),
     ConversionPreset(
         "webm_vp9",
-        "WebM VP9",
-        "VP9/Opus con calidad CRF y dimensiones conservadas.",
         "video",
         "WebM",
         video_settings=VideoSettings(
@@ -272,6 +253,12 @@ class SettingsStore:
         )
         self._update("output_policy", value)
 
+    def load_language(self) -> str:
+        return str(normalized_language(self._read().get("language")))
+
+    def save_language(self, language: str) -> None:
+        self._update("language", str(normalized_language(language)))
+
     def load_normalize_filenames(self) -> bool:
         return self._read().get("normalize_filenames") is True
 
@@ -332,7 +319,16 @@ class SettingsStore:
 
 
 def public_preset_data() -> list[dict[str, object]]:
-    """Expose serializable data for validation and future media categories."""
+    """Expose serializable data for validation and future media categories.
+
+    Los textos visibles se resuelven en el idioma activo, ya que no forman
+    parte de los campos del preset.
+    """
     return [
-        asdict(preset) for preset in (*IMAGE_PRESETS, *AUDIO_PRESETS, *VIDEO_PRESETS)
+        {
+            **asdict(preset),
+            "display_name": preset.display_name,
+            "description": preset.description,
+        }
+        for preset in (*IMAGE_PRESETS, *AUDIO_PRESETS, *VIDEO_PRESETS)
     ]

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from i18n import t
+
 
 class ResizeMode(StrEnum):
     ORIGINAL = "original"
@@ -29,22 +31,24 @@ class ResizeConfig:
 
 def validate_resize_config(config: ResizeConfig) -> None:
     if config.mode in {ResizeMode.MAX_WIDTH, ResizeMode.FIT}:
-        _validate_dimension(config.width, "anchura")
+        _validate_dimension(config.width, t("resize.label.width"))
     if config.mode in {ResizeMode.MAX_HEIGHT, ResizeMode.FIT}:
-        _validate_dimension(config.height, "altura")
+        _validate_dimension(config.height, t("resize.label.height"))
     if config.mode is ResizeMode.PERCENT:
         if config.percentage is None or config.percentage <= 0:
-            raise ValueError("El porcentaje debe ser mayor que 0.")
+            raise ValueError(t("resize.percent_positive"))
         limit = 100 if config.never_upscale else MAX_UPSCALE_PERCENT
         if config.percentage > limit:
-            raise ValueError(f"El porcentaje no puede superar {limit}%.")
+            raise ValueError(t("resize.percent_limit", limit=limit))
 
 
 def _validate_dimension(value: int | None, label: str) -> None:
     if value is None or value <= 0:
-        raise ValueError(f"La {label} debe ser un número entero mayor que 0.")
+        raise ValueError(t("resize.dimension_positive", label=label))
     if value > MAX_DIMENSION:
-        raise ValueError(f"La {label} no puede superar {MAX_DIMENSION:,} píxeles.")
+        raise ValueError(
+            t("resize.dimension_limit", label=label, limit=f"{MAX_DIMENSION:,}")
+        )
 
 
 def calculate_resize_dimensions(
@@ -52,7 +56,7 @@ def calculate_resize_dimensions(
 ) -> tuple[int, int]:
     """Calculate a proportional target size without cropping or distortion."""
     if original_width <= 0 or original_height <= 0:
-        raise ValueError("Las dimensiones originales deben ser mayores que 0.")
+        raise ValueError(t("resize.original_positive"))
     validate_resize_config(config)
     if config.mode is ResizeMode.ORIGINAL:
         return original_width, original_height
@@ -71,7 +75,5 @@ def calculate_resize_dimensions(
     width = max(1, round(original_width * scale))
     height = max(1, round(original_height * scale))
     if width > MAX_DIMENSION or height > MAX_DIMENSION:
-        raise ValueError(
-            f"El resultado no puede superar {MAX_DIMENSION:,} píxeles por lado."
-        )
+        raise ValueError(t("resize.result_limit", limit=f"{MAX_DIMENSION:,}"))
     return width, height

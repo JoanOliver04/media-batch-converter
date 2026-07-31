@@ -12,7 +12,7 @@ from typing import Any
 from PIL import Image, ImageCms, UnidentifiedImageError
 
 from animation_handling import animation_supported
-
+from i18n import t
 
 EXTREME_DIMENSION = 16_000
 MEMORY_PRESSURE_PIXELS = 80_000_000
@@ -113,7 +113,7 @@ def validate_properties(
             _warning(
                 ImageWarningCode.INVALID_DIMENSIONS,
                 WarningSeverity.BLOCKING_ERROR,
-                "La imagen tiene dimensiones inválidas.",
+                t("validation.invalid_dimensions"),
                 source,
                 width=width,
                 height=height,
@@ -124,7 +124,7 @@ def validate_properties(
             _warning(
                 ImageWarningCode.SOURCE_DIMENSIONS_EXTREME,
                 WarningSeverity.WARNING,
-                "La imagen tiene dimensiones extremas.",
+                t("validation.extreme_dimensions"),
                 source,
                 width=width,
                 height=height,
@@ -135,7 +135,7 @@ def validate_properties(
             _warning(
                 ImageWarningCode.SOURCE_PIXEL_COUNT_EXCESSIVE,
                 WarningSeverity.WARNING,
-                "El recuento de píxeles puede requerir mucha memoria.",
+                t("validation.excessive_pixels"),
                 source,
                 pixels=width * height,
             )
@@ -154,7 +154,7 @@ def validate_properties(
             _warning(
                 ImageWarningCode.EXTENSION_FORMAT_MISMATCH,
                 WarningSeverity.WARNING,
-                "La extensión no coincide con el formato detectado.",
+                t("validation.extension_mismatch"),
                 source,
                 detectedFormat=detected_format,
                 extension=extension,
@@ -166,7 +166,7 @@ def validate_properties(
             _warning(
                 ImageWarningCode.UNUSUAL_COLOR_MODE,
                 WarningSeverity.WARNING,
-                f"Modo de color poco habitual: {mode}.",
+                t("validation.unusual_color_mode", mode=mode),
                 source,
                 mode=mode,
             )
@@ -176,7 +176,7 @@ def validate_properties(
             _warning(
                 ImageWarningCode.CMYK_CONVERTED_TO_RGB,
                 WarningSeverity.WARNING,
-                "La imagen CMYK se convertirá a RGB.",
+                t("validation.cmyk_to_rgb"),
                 source,
             )
         )
@@ -185,7 +185,7 @@ def validate_properties(
             _warning(
                 ImageWarningCode.ALPHA_CHANNEL_PRESENT,
                 WarningSeverity.INFORMATION,
-                "La fuente contiene un canal alfa.",
+                t("validation.alpha_present"),
                 source,
             )
         )
@@ -194,7 +194,7 @@ def validate_properties(
             _warning(
                 ImageWarningCode.MEANINGFUL_TRANSPARENCY,
                 WarningSeverity.INFORMATION,
-                "La fuente contiene píxeles transparentes.",
+                t("validation.transparent_pixels"),
                 source,
             )
         )
@@ -203,7 +203,7 @@ def validate_properties(
                 _warning(
                     ImageWarningCode.ALPHA_WILL_BE_FLATTENED,
                     WarningSeverity.WARNING,
-                    "El formato de salida eliminará la transparencia.",
+                    t("validation.alpha_flattened"),
                     source,
                     targetFormat=target_format,
                 )
@@ -213,7 +213,7 @@ def validate_properties(
             _warning(
                 ImageWarningCode.ANIMATION_MAY_BE_LOST,
                 WarningSeverity.WARNING,
-                "La salida conservará únicamente un fotograma.",
+                t("validation.single_frame_output"),
                 source,
                 targetFormat=target_format,
             )
@@ -223,7 +223,7 @@ def validate_properties(
             _warning(
                 ImageWarningCode.METADATA_DROPPED,
                 WarningSeverity.INFORMATION,
-                "Los metadatos de la fuente no se copiarán.",
+                t("validation.metadata_dropped"),
                 source,
             )
         )
@@ -233,7 +233,7 @@ def validate_properties(
                 _warning(
                     ImageWarningCode.ICC_PROFILE_INVALID,
                     WarningSeverity.WARNING,
-                    "El perfil ICC no se pudo interpretar.",
+                    t("validation.icc_unreadable"),
                     source,
                 )
             )
@@ -241,7 +241,7 @@ def validate_properties(
             _warning(
                 ImageWarningCode.ICC_PROFILE_DROPPED,
                 WarningSeverity.INFORMATION,
-                "El perfil ICC no se copiará a la salida.",
+                t("validation.icc_not_copied"),
                 source,
             )
         )
@@ -309,7 +309,7 @@ def validate_image(source: Path, target_format: str) -> list[ImageWarning]:
             _warning(
                 ImageWarningCode.CORRUPTED_IMAGE,
                 WarningSeverity.BLOCKING_ERROR,
-                f"La imagen está dañada o truncada: {error}",
+                t("validation.corrupted", detail=error),
                 source,
             )
         )
@@ -328,7 +328,7 @@ def output_size_warnings(
             _warning(
                 ImageWarningCode.OUTPUT_SIZE_REDUCTION_EXTREME,
                 WarningSeverity.WARNING,
-                "La salida es más de un 90 % menor; conviene revisarla visualmente.",
+                t("validation.size_reduction_extreme"),
                 source,
                 reductionPercent=round(reduction * 100, 2),
             )
@@ -338,7 +338,7 @@ def output_size_warnings(
             _warning(
                 ImageWarningCode.OUTPUT_SIZE_INCREASED,
                 WarningSeverity.INFORMATION,
-                "La salida es mayor que el archivo de origen.",
+                t("validation.size_increased"),
                 source,
                 increaseBytes=output_bytes - original_bytes,
             )

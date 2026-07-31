@@ -4,14 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from output_policy import OutputAction, OutputPolicy, cleanup_temporary, plan_output
-
 from filename_normalization import (
     MAX_BASENAME_LENGTH,
     collision_keys,
     normalize_basename,
     output_filename,
 )
+from output_policy import OutputAction, OutputPolicy, cleanup_temporary, plan_output
 
 
 class FilenameNormalizationTests(unittest.TestCase):
@@ -67,7 +66,7 @@ class FilenameNormalizationTests(unittest.TestCase):
         self.assertEqual(collision_keys(paths), set())
 
     def test_existing_file_policies_apply_to_normalized_collision(self) -> None:
-        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
+        with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             first = root / "My-File.png"
             second = root / "My File.jpg"

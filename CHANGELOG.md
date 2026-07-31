@@ -4,6 +4,25 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 ## Unreleased
 
+### Added
+
+- Language selector for Spanish and English, applied immediately without restarting and persisted with the local settings.
+- Message catalogues under `locales/`, with tests that fail when a catalogue is missing a key or a format placeholder.
+
+### Changed
+
+- Split the monolithic `png_a_webp.py` presentation layer into a `ui/` package with one module per tab plus shared bases.
+- Audio and video panels now share a common `FFmpegPanel` base instead of video inheriting from audio.
+- Split the oversized image and FFmpeg batch loops into per-file steps separated from orchestration.
+- Renamed internal identifiers from Spanish to English; user-facing text moved out of the modules into the catalogues.
+- Preset names and descriptions are resolved from the active language instead of being stored on the preset.
+- The FFmpeg provider is recorded as a stable code (`bundled`, `system`, `imageio-ffmpeg`) and translated only for display.
+- Test temporary directories are created in the system temp location instead of the repository root.
+
+### Removed
+
+- Unused `completar` result dialog, superseded by the batch summary.
+
 ## 0.1.0 - 2026-07-22
 
 ### Added

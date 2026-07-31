@@ -19,7 +19,7 @@ from output_policy import (
 
 class OutputPolicyTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory(dir=Path.cwd())
+        self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.source = self.root / "source.png"
         self.target = self.root / "output.webp"

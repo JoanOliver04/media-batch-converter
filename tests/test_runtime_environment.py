@@ -7,14 +7,28 @@ from tkinter import TclError, Tk, ttk
 from unittest.mock import Mock, patch
 
 import runtime_environment
-from png_a_webp import ConversorApp
 from runtime_environment import (
+    FFMPEG_SOURCE_BUNDLED,
+    FFMPEG_SOURCE_IMAGEIO,
+    FFMPEG_SOURCE_SYSTEM,
     FFmpegInfo,
     diagnostics_text,
     missing_python_dependencies,
     resolve_ffmpeg,
     resource_path,
 )
+from ui.app import ConverterApp
+
+
+def find_notebook(widget) -> ttk.Notebook:
+    """Localiza el Notebook, que ahora cuelga del contenedor de ConverterApp."""
+    for child in widget.winfo_children():
+        if isinstance(child, ttk.Notebook):
+            return child
+        found = find_notebook(child)
+        if found is not None:
+            return found
+    return None
 
 
 class RuntimeEnvironmentTests(unittest.TestCase):
@@ -32,7 +46,7 @@ class RuntimeEnvironmentTests(unittest.TestCase):
             self.assertEqual(missing_python_dependencies(), ["imageio-ffmpeg"])
 
     def test_ffmpeg_resolution_prefers_bundled_then_provider_then_path(self) -> None:
-        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
+        with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             bundled = root / "ffmpeg" / "ffmpeg.exe"
             bundled.parent.mkdir()
@@ -42,7 +56,7 @@ class RuntimeEnvironmentTests(unittest.TestCase):
                 patch("runtime_environment.resource_path", return_value=bundled),
                 patch("runtime_environment._ffmpeg_version", return_value="ffmpeg 1"),
             ):
-                self.assertEqual(resolve_ffmpeg().source, "incluido")
+                self.assertEqual(resolve_ffmpeg().source, FFMPEG_SOURCE_BUNDLED)
 
             bundled.unlink()
             provider_exe = root / "provider.exe"
@@ -62,7 +76,7 @@ class RuntimeEnvironmentTests(unittest.TestCase):
                     "import_module",
                     return_value=provider,
                 ):
-                    self.assertEqual(resolve_ffmpeg().source, "imageio-ffmpeg")
+                    self.assertEqual(resolve_ffmpeg().source, FFMPEG_SOURCE_IMAGEIO)
 
             system = root / "system.exe"
             system.write_bytes(b"exe")
@@ -82,7 +96,7 @@ class RuntimeEnvironmentTests(unittest.TestCase):
                     "import_module",
                     side_effect=ImportError,
                 ):
-                    self.assertEqual(resolve_ffmpeg().source, "sistema")
+                    self.assertEqual(resolve_ffmpeg().source, FFMPEG_SOURCE_SYSTEM)
 
     def test_missing_ffmpeg_returns_none(self) -> None:
         with (
@@ -96,7 +110,7 @@ class RuntimeEnvironmentTests(unittest.TestCase):
 
     def test_diagnostics_and_private_path(self) -> None:
         info = FFmpegInfo(
-            Path.home() / "tools" / "ffmpeg.exe", "incluido", "ffmpeg 7.1"
+            Path.home() / "tools" / "ffmpeg.exe", FFMPEG_SOURCE_BUNDLED, "ffmpeg 7.1"
         )
         report = diagnostics_text(info)
         self.assertIn("Media Batch Converter 0.1.0", report)
@@ -107,7 +121,7 @@ class RuntimeEnvironmentTests(unittest.TestCase):
         self.assertNotIn(str(Path.home()), report)
 
     def test_packaged_resource_path(self) -> None:
-        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
+        with tempfile.TemporaryDirectory() as temporary:
             with patch.object(
                 runtime_environment.sys, "_MEIPASS", temporary, create=True
             ):
@@ -116,10 +130,12 @@ class RuntimeEnvironmentTests(unittest.TestCase):
                 )
 
     def test_source_has_no_automatic_pip_invocation(self) -> None:
-        source = Path("png_a_webp.py").read_text(encoding="utf-8")
-        launcher = Path("run_app.py").read_text(encoding="utf-8")
-        self.assertNotIn("check_call", source + launcher)
-        self.assertNotIn('"pip", "install"', source + launcher)
+        project = Path(__file__).resolve().parent.parent
+        sources = [project / "run_app.py", *sorted((project / "ui").glob("*.py"))]
+        self.assertGreater(len(sources), 1)
+        combined = "".join(path.read_text(encoding="utf-8") for path in sources)
+        self.assertNotIn("check_call", combined)
+        self.assertNotIn('"pip", "install"', combined)
 
 
 class AvailabilityUiTests(unittest.TestCase):
@@ -130,13 +146,9 @@ class AvailabilityUiTests(unittest.TestCase):
         except TclError as error:
             self.skipTest(f"Tk unavailable: {error}")
         try:
-            with patch("png_a_webp.resolve_ffmpeg", return_value=None):
-                ConversorApp(root)
-            notebook = next(
-                child
-                for child in root.winfo_children()
-                if isinstance(child, ttk.Notebook)
-            )
+            with patch("ui.app.resolve_ffmpeg", return_value=None):
+                ConverterApp(root)
+            notebook = find_notebook(root)
             tabs = notebook.tabs()
             self.assertEqual(notebook.tab(tabs[0], "state"), "normal")
             self.assertEqual(notebook.tab(tabs[1], "state"), "disabled")

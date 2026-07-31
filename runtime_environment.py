@@ -12,9 +12,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app_logging import log_path
+from i18n import t
 from version import APP_NAME, APP_VERSION
 
 INSTALL_COMMAND = "python -m pip install -r requirements.txt"
+
+#: Códigos estables del proveedor de FFmpeg; se traducen solo al mostrarse.
+FFMPEG_SOURCE_BUNDLED = "bundled"
+FFMPEG_SOURCE_SYSTEM = "system"
+FFMPEG_SOURCE_IMAGEIO = "imageio-ffmpeg"
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,7 +73,9 @@ def _ffmpeg_version(executable: Path) -> str | None:
     if completed.returncode != 0:
         return None
     first_line = completed.stdout.splitlines()
-    return first_line[0].strip() if first_line else "FFmpeg (versión desconocida)"
+    return (
+        first_line[0].strip() if first_line else t("diagnostics.ffmpeg_unknown_version")
+    )
 
 
 def resolve_ffmpeg() -> FFmpegInfo | None:
@@ -84,15 +92,15 @@ def resolve_ffmpeg() -> FFmpegInfo | None:
             pass
         for candidate in bundled:
             if candidate not in (item[0] for item in candidates):
-                candidates.append((candidate, "incluido"))
+                candidates.append((candidate, FFMPEG_SOURCE_BUNDLED))
     try:
         provider = importlib.import_module("imageio_ffmpeg")
-        candidates.append((Path(provider.get_ffmpeg_exe()), "imageio-ffmpeg"))
+        candidates.append((Path(provider.get_ffmpeg_exe()), FFMPEG_SOURCE_IMAGEIO))
     except (ImportError, OSError, RuntimeError):
         pass
     system = shutil.which("ffmpeg")
     if system:
-        candidates.append((Path(system), "sistema"))
+        candidates.append((Path(system), FFMPEG_SOURCE_SYSTEM))
     for path, source in candidates:
         if path.is_file():
             version = _ffmpeg_version(path)
@@ -109,7 +117,17 @@ def private_path(path: Path) -> str:
     return text
 
 
+def ffmpeg_source_label(source: str) -> str:
+    """Traduce el código estable del proveedor de FFmpeg para mostrarlo."""
+    return {
+        FFMPEG_SOURCE_BUNDLED: t("diagnostics.source.bundled"),
+        FFMPEG_SOURCE_SYSTEM: t("diagnostics.source.system"),
+        FFMPEG_SOURCE_IMAGEIO: t("diagnostics.source.imageio"),
+    }.get(source, source)
+
+
 def diagnostics_text(ffmpeg: FFmpegInfo | None = None) -> str:
+    unavailable = t("diagnostics.unavailable")
     try:
         pillow = importlib.import_module("PIL").__version__
         from PIL import Image
@@ -122,23 +140,26 @@ def diagnostics_text(ffmpeg: FFmpegInfo | None = None) -> str:
         )
         image_formats = ", ".join(extensions)
     except ImportError:
-        pillow = "No disponible"
-        image_formats = "No disponibles"
+        pillow = unavailable
+        image_formats = t("diagnostics.unavailable_plural")
     try:
         imageio_version = importlib.import_module("imageio_ffmpeg").__version__
     except ImportError:
-        imageio_version = "No disponible (se puede usar FFmpeg incluido o del sistema)"
+        imageio_version = t("diagnostics.imageio_unavailable")
     ffmpeg = ffmpeg if ffmpeg is not None else resolve_ffmpeg()
+    packaged = t("diagnostics.packaged_suffix") if getattr(sys, "frozen", False) else ""
     lines = [
-        f"Aplicación: {APP_NAME} {APP_VERSION}",
-        f"Sistema: {platform.platform()}",
-        f"Python: {platform.python_version()}{' (empaquetado)' if getattr(sys, 'frozen', False) else ''}",
+        f"{t('diagnostics.line.application')}: {APP_NAME} {APP_VERSION}",
+        f"{t('diagnostics.line.system')}: {platform.platform()}",
+        f"{t('diagnostics.line.python')}: {platform.python_version()}{packaged}",
         f"Pillow: {pillow}",
         f"imageio-ffmpeg: {imageio_version}",
-        f"FFmpeg: {ffmpeg.version if ffmpeg else 'No disponible'}",
-        f"Proveedor FFmpeg: {ffmpeg.source if ffmpeg else 'Ninguno'}",
-        f"Ruta FFmpeg: {private_path(ffmpeg.path) if ffmpeg else 'No disponible'}",
-        f"Registro local: {private_path(log_path())}",
-        f"Formatos de imagen registrados: {image_formats}",
+        f"FFmpeg: {ffmpeg.version if ffmpeg else unavailable}",
+        f"{t('diagnostics.line.ffmpeg_provider')}: "
+        f"{ffmpeg_source_label(ffmpeg.source) if ffmpeg else t('diagnostics.none')}",
+        f"{t('diagnostics.line.ffmpeg_path')}: "
+        f"{private_path(ffmpeg.path) if ffmpeg else unavailable}",
+        f"{t('diagnostics.line.log')}: {private_path(log_path())}",
+        f"{t('diagnostics.line.image_formats')}: {image_formats}",
     ]
     return "\n".join(lines)

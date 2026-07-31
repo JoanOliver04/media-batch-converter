@@ -6,8 +6,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from i18n import t
 from presets import AudioSettings
-
 
 CONTAINER_CODECS = {
     "M4A": {"aac"},
@@ -23,21 +23,19 @@ _TIME_PATTERN = re.compile(r"\btime=(\d+):(\d+):(\d+(?:\.\d+)?)")
 def validate_audio_settings(container: str, settings: AudioSettings) -> None:
     normalized = container.upper()
     if settings.codec not in CONTAINER_CODECS.get(normalized, set()):
-        raise ValueError(f"El códec {settings.codec} no es compatible con {container}.")
-    if settings.sample_rate is not None and settings.sample_rate <= 0:
-        raise ValueError("La frecuencia de muestreo debe ser positiva.")
-    if settings.channels not in {None, 1, 2}:
         raise ValueError(
-            "Los canales deben conservarse, convertirse a mono o a estéreo."
+            t("audio.codec_incompatible", codec=settings.codec, container=container)
         )
+    if settings.sample_rate is not None and settings.sample_rate <= 0:
+        raise ValueError(t("audio.sample_rate_positive"))
+    if settings.channels not in {None, 1, 2}:
+        raise ValueError(t("audio.channels_invalid"))
     if settings.bitrate_kbps is not None and settings.bitrate_kbps <= 0:
-        raise ValueError("El bitrate debe ser positivo.")
+        raise ValueError(t("audio.bitrate_positive"))
     if settings.codec == "aac" and settings.profile != "aac_low":
-        raise ValueError("Los presets AAC deben declarar explícitamente AAC-LC.")
+        raise ValueError(t("audio.aac_profile_required"))
     if settings.normalize_loudness:
-        raise NotImplementedError(
-            "La normalización de sonoridad está configurada pero aún no implementada."
-        )
+        raise NotImplementedError(t("audio.loudness_not_implemented"))
 
 
 def build_audio_args(container: str, settings: AudioSettings) -> list[str]:

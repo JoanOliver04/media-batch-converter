@@ -8,8 +8,19 @@ from tkinter import TclError, Tk, ttk
 from unittest.mock import Mock, patch
 
 from app_logging import configure_logging
-from png_a_webp import ConversorApp, ScrollableTab
+from ui.app import ConverterApp, ScrollableTab
 from video_encoding import ProgressLimiter
+
+
+def find_notebook(widget) -> ttk.Notebook:
+    """Localiza el Notebook, que ahora cuelga del contenedor de ConverterApp."""
+    for child in widget.winfo_children():
+        if isinstance(child, ttk.Notebook):
+            return child
+        found = find_notebook(child)
+        if found is not None:
+            return found
+    return None
 
 
 class PerformanceContractTests(unittest.TestCase):
@@ -26,7 +37,7 @@ class PerformanceContractTests(unittest.TestCase):
         for handler in old_handlers:
             root_logger.removeHandler(handler)
         try:
-            with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
+            with tempfile.TemporaryDirectory() as temporary:
                 destination = Path(temporary) / "application.log"
                 self.assertEqual(configure_logging(destination), destination)
                 try:
@@ -60,20 +71,16 @@ class HighDpiUiTests(unittest.TestCase):
             try:
                 root.tk.call("tk", "scaling", scale)
                 with patch(
-                    "png_a_webp.resolve_ffmpeg",
+                    "ui.app.resolve_ffmpeg",
                     return_value=Mock(
                         path=Path("ffmpeg"), version="test", source="test"
                     ),
                 ):
-                    ConversorApp(root)
+                    ConverterApp(root)
                 root.update_idletasks()
                 self.assertLessEqual(root.winfo_reqwidth(), 900)
                 self.assertLessEqual(root.winfo_reqheight(), 780)
-                notebook = next(
-                    child
-                    for child in root.winfo_children()
-                    if isinstance(child, ttk.Notebook)
-                )
+                notebook = find_notebook(root)
                 tabs = [notebook.nametowidget(tab) for tab in notebook.tabs()[:3]]
                 self.assertTrue(all(isinstance(tab, ScrollableTab) for tab in tabs))
                 self.assertTrue(
@@ -90,25 +97,21 @@ class HighDpiUiTests(unittest.TestCase):
             self.skipTest(f"Tk unavailable: {error}")
         try:
             with patch(
-                "png_a_webp.resolve_ffmpeg",
+                "ui.app.resolve_ffmpeg",
                 return_value=Mock(path=Path("ffmpeg"), version="test", source="test"),
             ):
-                ConversorApp(root)
-            notebook = next(
-                child
-                for child in root.winfo_children()
-                if isinstance(child, ttk.Notebook)
-            )
+                ConverterApp(root)
+            notebook = find_notebook(root)
             image_tab, audio_tab, video_tab = [
                 notebook.nametowidget(tab) for tab in notebook.tabs()[:3]
             ]
-            image_tab.panel.aplicar_preset_id("thumbnail")
+            image_tab.panel.apply_preset_id("thumbnail")
             audio_tab.panel.apply_audio_preset_id("voice_dialogue")
             video_tab.panel.apply_video_preset_id("vertical_social")
             for tab in (audio_tab, video_tab, image_tab):
                 notebook.select(tab)
                 root.update_idletasks()
-            self.assertEqual(image_tab.panel.calidad.get(), 78)
+            self.assertEqual(image_tab.panel.quality.get(), 78)
             self.assertEqual(audio_tab.panel.audio_channels.get(), "Mono")
             self.assertEqual(video_tab.panel.video_aspect.get(), "Ajustar con bandas")
         finally:

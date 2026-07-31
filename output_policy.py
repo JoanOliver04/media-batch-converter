@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from i18n import t
+
 
 class OutputPolicy(StrEnum):
     SKIP = "skip"
@@ -75,7 +77,7 @@ def unique_path(desired: Path) -> Path:
             candidate = desired.with_name(f"{desired.stem}_{index}{desired.suffix}")
             if candidate.name.casefold() not in existing:
                 return candidate
-    raise FileExistsError("No se pudo encontrar un nombre de salida libre.")
+    raise FileExistsError(t("policy.no_free_name"))
 
 
 def _reserve_unique_path(desired: Path) -> Path:
@@ -91,7 +93,7 @@ def _reserve_unique_path(desired: Path) -> Path:
             if candidate.name.casefold() not in existing and key not in _RESERVED_PATHS:
                 _RESERVED_PATHS.add(key)
                 return candidate
-    raise FileExistsError("No se pudo reservar un nombre de salida libre.")
+    raise FileExistsError(t("policy.no_reservation"))
 
 
 def _release_reservation(plan: OutputPlan | None) -> None:

@@ -19,7 +19,7 @@ from image_validation import (
 
 class ImageValidationTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory(dir=Path.cwd())
+        self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
 
     def tearDown(self) -> None:

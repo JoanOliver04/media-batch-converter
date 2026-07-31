@@ -7,7 +7,6 @@ import unicodedata
 from collections import Counter
 from pathlib import Path
 
-
 MAX_BASENAME_LENGTH = 100
 SAFE_PREFIX = "asset_"
 WINDOWS_RESERVED_NAMES = {

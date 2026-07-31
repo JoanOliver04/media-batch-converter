@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
+from i18n import t
 from image_validation import ImageWarning
 
 
@@ -184,42 +185,41 @@ def format_duration(seconds: float) -> str:
 def summary_text(summary: BatchSummary) -> str:
     reduction = summary.percentage_reduction
     if summary.bytes_saved >= 0:
-        size_line = f"Espacio ahorrado: {format_bytes(summary.bytes_saved)}"
-        percent_line = (
-            f"Reducción: {reduction:.1f}%"
-            if reduction is not None
-            else "Reducción: no aplicable"
-        )
+        size_line = f"{t('summary.space_saved')}: {format_bytes(summary.bytes_saved)}"
+        percent_label = t("summary.reduction")
+        percent_value = f"{reduction:.1f}%" if reduction is not None else None
     else:
-        size_line = f"Aumento de tamaño: {format_bytes(-summary.bytes_saved)}"
-        percent_line = (
-            f"Incremento: {-reduction:.1f}%"
-            if reduction is not None
-            else "Incremento: no aplicable"
+        size_line = (
+            f"{t('summary.size_increase')}: {format_bytes(-summary.bytes_saved)}"
         )
-    state = "Cancelada" if summary.cancelled else "Completada"
+        percent_label = t("summary.increment")
+        percent_value = f"{-reduction:.1f}%" if reduction is not None else None
+    percent_line = f"{percent_label}: {percent_value or t('summary.not_applicable')}"
+    state = t(
+        "summary.state.cancelled" if summary.cancelled else "summary.state.completed"
+    )
     return "\n".join(
         (
-            f"Estado: {state}",
-            f"Archivos descubiertos: {summary.files_discovered}",
-            f"Archivos procesados: {summary.files_processed}",
-            f"Convertidos correctamente: {summary.converted}",
-            f"Omitidos: {summary.skipped}",
-            f"  - Destino existente: {summary.skipped_existing}",
-            f"  - Destino actualizado: {summary.skipped_up_to_date}",
-            f"Sobrescritos: {summary.overwritten}",
-            f"Renombrados por colisión: {summary.renamed}",
-            f"Colisiones de nombre detectadas: {summary.name_collisions}",
-            f"Avisos de archivos: {summary.warning_count}",
-            f"Animaciones conservadas: {summary.animation_count('preserve')}",
-            f"Animaciones extraídas: {summary.animation_count('extract_frames')}",
-            f"Animaciones reducidas al primer fotograma: {summary.animation_count('first_frame')}",
-            f"Fallidos: {summary.failed}",
-            f"Tamaño original procesado: {format_bytes(summary.original_bytes)}",
-            f"Tamaño de salida: {format_bytes(summary.output_bytes)}",
+            f"{t('summary.state')}: {state}",
+            f"{t('summary.files_discovered')}: {summary.files_discovered}",
+            f"{t('summary.files_processed')}: {summary.files_processed}",
+            f"{t('summary.converted')}: {summary.converted}",
+            f"{t('summary.skipped')}: {summary.skipped}",
+            f"{t('summary.skipped_existing')}: {summary.skipped_existing}",
+            f"{t('summary.skipped_up_to_date')}: {summary.skipped_up_to_date}",
+            f"{t('summary.overwritten')}: {summary.overwritten}",
+            f"{t('summary.renamed')}: {summary.renamed}",
+            f"{t('summary.name_collisions')}: {summary.name_collisions}",
+            f"{t('summary.warning_count')}: {summary.warning_count}",
+            f"{t('summary.animation_preserved')}: {summary.animation_count('preserve')}",
+            f"{t('summary.animation_extracted')}: {summary.animation_count('extract_frames')}",
+            f"{t('summary.animation_first_frame')}: {summary.animation_count('first_frame')}",
+            f"{t('summary.failed')}: {summary.failed}",
+            f"{t('summary.original_size')}: {format_bytes(summary.original_bytes)}",
+            f"{t('summary.output_size')}: {format_bytes(summary.output_bytes)}",
             size_line,
             percent_line,
-            f"Tiempo transcurrido: {format_duration(summary.elapsed_seconds)}",
-            f"Avisos de operación: {len(summary.operation_warnings)}",
+            f"{t('summary.elapsed')}: {format_duration(summary.elapsed_seconds)}",
+            f"{t('summary.operation_warnings')}: {len(summary.operation_warnings)}",
         )
     )

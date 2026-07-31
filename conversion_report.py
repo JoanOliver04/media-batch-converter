@@ -14,9 +14,9 @@ from threading import Event
 from typing import Any, BinaryIO
 
 from conversion_results import BatchSummary, FileResult
+from i18n import t
 from image_validation import ImageWarning
 from version import APP_VERSION
-
 
 SCHEMA_VERSION = 1
 APPLICATION_VERSION = APP_VERSION
@@ -41,7 +41,7 @@ def sha256_file(
     after = path.stat()
     warning = None
     if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
-        warning = "El archivo cambió durante el cálculo de SHA-256."
+        warning = t("report.file_changed_during_hash")
     return digest.hexdigest(), warning
 
 
@@ -211,7 +211,7 @@ def report_path(output_root: Path, completed_at: datetime) -> Path:
         candidate = output_root / f"conversion_report_{stamp}_{index}.json"
         if candidate.name.casefold() not in existing:
             return candidate
-    raise FileExistsError("No se encontró un nombre libre para el informe.")
+    raise FileExistsError(t("report.no_free_name"))
 
 
 def write_report_atomic(path: Path, report: dict[str, Any]) -> None:

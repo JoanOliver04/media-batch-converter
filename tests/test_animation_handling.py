@@ -14,7 +14,7 @@ from animation_handling import (
     webp_frame_durations,
 )
 from image_resize import ResizeConfig, ResizeMode
-from png_a_webp import PanelImagen
+from ui.image_panel import ImagePanel
 
 
 class ImmediateRoot:
@@ -53,14 +53,14 @@ def make_animation(path: Path) -> None:
 
 
 def make_panel(cancel_event=None):
-    panel = PanelImagen.__new__(PanelImagen)
-    panel.raiz = ImmediateRoot()
-    panel.estado = DummyState()
+    panel = ImagePanel.__new__(ImagePanel)
+    panel.root = ImmediateRoot()
+    panel.status = DummyState()
     panel.cancel_event = cancel_event or threading.Event()
-    panel.notificar_avance = lambda *_args: None
-    panel.modos_seleccionados = {}
+    panel.report_progress = lambda *_args: None
+    panel.selected_modes = {}
     completion: dict[str, object] = {}
-    panel.finalizar_resultados = lambda destination, results, errors, *args: (
+    panel.finish_results = lambda destination, results, errors, *args: (
         completion.update(
             destination=destination,
             results=results,
@@ -73,7 +73,7 @@ def make_panel(cancel_event=None):
 
 class AnimationHandlingTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory(dir=Path.cwd())
+        self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.source = self.root / "animated.gif"
         make_animation(self.source)
@@ -93,12 +93,12 @@ class AnimationHandlingTests(unittest.TestCase):
 
     def test_preserve_animation_metadata_transparency_and_order(self) -> None:
         panel, completion = make_panel()
-        panel.convertir_lote(
+        panel.convert_batch(
             self.root,
             [self.source],
             "GIF",
             85,
-            opciones={"animation_mode": AnimationMode.PRESERVE.value},
+            options={"animation_mode": AnimationMode.PRESERVE.value},
         )
         result = completion["results"][0]
         self.assertEqual(result.animation_mode, "preserve")
@@ -128,12 +128,12 @@ class AnimationHandlingTests(unittest.TestCase):
         source = nested / "animated.gif"
         make_animation(source)
         panel, completion = make_panel()
-        panel.convertir_lote(
+        panel.convert_batch(
             self.root,
             [source],
             "PNG",
             85,
-            opciones={
+            options={
                 "animation_mode": AnimationMode.EXTRACT_FRAMES.value,
                 "resize_config": ResizeConfig(ResizeMode.MAX_WIDTH, width=3),
             },
@@ -156,12 +156,12 @@ class AnimationHandlingTests(unittest.TestCase):
         marker = existing / "unrelated.txt"
         marker.write_text("keep", encoding="utf-8")
         panel, completion = make_panel()
-        panel.convertir_lote(
+        panel.convert_batch(
             self.root,
             [self.source],
             "PNG",
             85,
-            opciones={"animation_mode": AnimationMode.EXTRACT_FRAMES.value},
+            options={"animation_mode": AnimationMode.EXTRACT_FRAMES.value},
         )
         result = completion["results"][0]
         self.assertEqual(result.output_path.name, "animated_frames_2")
@@ -182,12 +182,12 @@ class AnimationHandlingTests(unittest.TestCase):
         )
         self.assertEqual(webp_frame_durations(source), (50, 80))
         panel, completion = make_panel()
-        panel.convertir_lote(
+        panel.convert_batch(
             self.root,
             [source],
             "GIF",
             85,
-            opciones={"animation_mode": AnimationMode.PRESERVE.value},
+            options={"animation_mode": AnimationMode.PRESERVE.value},
         )
         result = completion["results"][0]
         self.assertEqual(result.frame_count, 2)
@@ -197,12 +197,12 @@ class AnimationHandlingTests(unittest.TestCase):
 
     def test_first_frame_only_is_explicit_and_static(self) -> None:
         panel, completion = make_panel()
-        panel.convertir_lote(
+        panel.convert_batch(
             self.root,
             [self.source],
             "PNG",
             85,
-            opciones={"animation_mode": AnimationMode.FIRST_FRAME.value},
+            options={"animation_mode": AnimationMode.FIRST_FRAME.value},
         )
         result = completion["results"][0]
         self.assertEqual(result.animation_mode, "first_frame")
@@ -217,12 +217,12 @@ class AnimationHandlingTests(unittest.TestCase):
         static = self.root / "static.png"
         Image.new("RGB", (2, 2), "green").save(static)
         panel, completion = make_panel()
-        panel.convertir_lote(
+        panel.convert_batch(
             self.root,
             [self.source, static],
             "JPG",
             85,
-            opciones={"animation_mode": AnimationMode.PRESERVE.value},
+            options={"animation_mode": AnimationMode.PRESERVE.value},
         )
         statuses = [result.status.value for result in completion["results"]]
         self.assertEqual(statuses, ["failed", "converted"])
@@ -235,12 +235,12 @@ class AnimationHandlingTests(unittest.TestCase):
         static = self.root / "static.gif"
         Image.new("P", (2, 2)).save(static)
         panel, completion = make_panel()
-        panel.convertir_lote(
+        panel.convert_batch(
             self.root,
             [static],
             "PNG",
             85,
-            opciones={"animation_mode": AnimationMode.EXTRACT_FRAMES.value},
+            options={"animation_mode": AnimationMode.EXTRACT_FRAMES.value},
         )
         result = completion["results"][0]
         self.assertIsNone(result.animation_mode)
@@ -248,12 +248,12 @@ class AnimationHandlingTests(unittest.TestCase):
 
     def test_cancellation_during_extraction_removes_partial_folder(self) -> None:
         panel, completion = make_panel(CountingCancel(trigger=3))
-        panel.convertir_lote(
+        panel.convert_batch(
             self.root,
             [self.source],
             "PNG",
             85,
-            opciones={"animation_mode": AnimationMode.EXTRACT_FRAMES.value},
+            options={"animation_mode": AnimationMode.EXTRACT_FRAMES.value},
         )
         self.assertTrue(completion["cancelled"])
         self.assertEqual(completion["results"], [])

@@ -100,7 +100,7 @@ class BatchSummaryTests(unittest.TestCase):
         self.assertEqual(summary.files_processed, 1)
 
     def test_preexisting_output_is_not_counted(self) -> None:
-        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
+        with tempfile.TemporaryDirectory() as temporary:
             old = Path(temporary) / "old.webp"
             old.write_bytes(b"x" * 5000)
             summary = BatchSummary(

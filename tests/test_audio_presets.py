@@ -14,8 +14,7 @@ from audio_encoding import (
     validate_audio_settings,
 )
 from presets import AUDIO_PRESETS, AudioSettings
-from png_a_webp import PanelAudio
-
+from ui.audio_panel import AudioPanel
 
 EXPECTED = {
     "runtime_music": ("M4A", "aac", 48_000, 2, 192, "aac_low"),
@@ -117,33 +116,34 @@ class DummyState:
 
 class AudioBatchTests(unittest.TestCase):
     def test_batch_command_is_argument_list_and_output_is_committed(self) -> None:
-        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
+        with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = root / "audio ü.wav"
             source.write_bytes(b"source")
-            panel = PanelAudio.__new__(PanelAudio)
-            panel.raiz = ImmediateRoot()
-            panel.estado = DummyState()
+            panel = AudioPanel.__new__(AudioPanel)
+            panel.root = ImmediateRoot()
+            panel.status = DummyState()
             panel.cancel_event = threading.Event()
-            panel.notificar_avance = lambda *_args: None
+            panel.report_progress = lambda *_args: None
             commands: list[list[str]] = []
 
             def execute(command: list[str]) -> None:
                 commands.append(command)
                 Path(command[-1]).write_bytes(b"converted")
 
-            panel.ejecutar_ffmpeg = execute
+            panel.run_ffmpeg = execute
             completion: dict[str, object] = {}
-            panel.finalizar_resultados = lambda destination, results, errors, *args: (
+            panel.finish_results = lambda destination, results, errors, *args: (
                 completion.update(results=results)
             )
             with (
                 patch(
-                    "png_a_webp.resolve_ffmpeg", return_value=Mock(path=Path("ffmpeg"))
+                    "ui.ffmpeg_panel.resolve_ffmpeg",
+                    return_value=Mock(path=Path("ffmpeg")),
                 ),
-                patch("png_a_webp.encoder_available", return_value=True),
+                patch("ui.ffmpeg_panel.encoder_available", return_value=True),
             ):
-                panel.convertir_ffmpeg_lote(
+                panel.convert_ffmpeg_batch(
                     root,
                     [source],
                     "M4A",

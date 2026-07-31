@@ -9,7 +9,7 @@ from pathlib import Path
 from PIL import Image
 
 from batch_processing import discover_files, safe_output_directory
-from png_a_webp import PanelImagen
+from ui.image_panel import ImagePanel
 
 
 class ImmediateRoot:
@@ -34,13 +34,13 @@ class StepCancel:
 
 class InterfaceContractTests(unittest.TestCase):
     def test_prepare_batch_accepts_captured_recursive_flag(self) -> None:
-        parameters = inspect.signature(PanelImagen.preparar_lote).parameters
-        self.assertIn("recursivo", parameters)
+        parameters = inspect.signature(ImagePanel.prepare_batch).parameters
+        self.assertIn("recursive", parameters)
 
 
 class DiscoveryTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory(dir=Path.cwd())
+        self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
 
     def tearDown(self) -> None:
@@ -112,7 +112,7 @@ class DiscoveryTests(unittest.TestCase):
 
 class ImageBatchTests(unittest.TestCase):
     def test_nested_structure_and_invalid_file_do_not_stop_batch(self) -> None:
-        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
+        with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             valid = root / "grupo á" / "same.png"
             invalid = root / "otro grupo" / "same.png"
@@ -121,19 +121,19 @@ class ImageBatchTests(unittest.TestCase):
             Image.new("RGBA", (4, 4), (255, 0, 0, 100)).save(valid)
             invalid.write_text("not an image", encoding="utf-8")
 
-            panel = PanelImagen.__new__(PanelImagen)
-            panel.raiz = ImmediateRoot()
-            panel.estado = DummyState()
+            panel = ImagePanel.__new__(ImagePanel)
+            panel.root = ImmediateRoot()
+            panel.status = DummyState()
             panel.cancel_event = threading.Event()
-            panel.notificar_avance = lambda *_args: None
+            panel.report_progress = lambda *_args: None
             completion: dict[str, object] = {}
-            panel.finalizar_resultados = lambda destination, results, errors, *args: (
+            panel.finish_results = lambda destination, results, errors, *args: (
                 completion.update(
                     destination=destination, results=results, discovery_errors=errors
                 )
             )
 
-            panel.convertir_lote(root, [valid, invalid], "WebP", 85)
+            panel.convert_batch(root, [valid, invalid], "WebP", 85)
 
             self.assertTrue(
                 root.joinpath("convertidos_webp", "grupo á", "same.webp").is_file()
@@ -161,29 +161,29 @@ class ImageBatchTests(unittest.TestCase):
     def test_normalized_batch_collision_uses_unique_policy_and_is_reported(
         self,
     ) -> None:
-        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
+        with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             first = root / "My-File.png"
             second = root / "My File.jpg"
             Image.new("RGB", (4, 4), "red").save(first)
             Image.new("RGB", (4, 4), "blue").save(second)
 
-            panel = PanelImagen.__new__(PanelImagen)
-            panel.raiz = ImmediateRoot()
-            panel.estado = DummyState()
+            panel = ImagePanel.__new__(ImagePanel)
+            panel.root = ImmediateRoot()
+            panel.status = DummyState()
             panel.cancel_event = threading.Event()
-            panel.notificar_avance = lambda *_args: None
+            panel.report_progress = lambda *_args: None
             completion: dict[str, object] = {}
-            panel.finalizar_resultados = lambda destination, results, errors, *args: (
+            panel.finish_results = lambda destination, results, errors, *args: (
                 completion.update(destination=destination, results=results)
             )
 
-            panel.convertir_lote(
+            panel.convert_batch(
                 root,
                 [first, second],
                 "WebP",
                 85,
-                opciones={
+                options={
                     "normalize_filenames": True,
                     "output_policy": "unique",
                     "generate_report": True,

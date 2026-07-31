@@ -19,8 +19,8 @@ from conversion_report import (
     write_report_atomic,
 )
 from conversion_results import BatchSummary, FileResult, FrameResult, ResultStatus
-from png_a_webp import PanelConversor
 from image_validation import ImageWarning, ImageWarningCode, WarningSeverity
+from ui.base import ConverterPanel
 
 
 class TrackingStream(BytesIO):
@@ -46,7 +46,7 @@ class ImmediateRoot:
 
 class ConversionReportTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory(dir=Path.cwd())
+        self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.output_root = self.root / "converted"
         self.output_root.mkdir()
@@ -257,21 +257,21 @@ class ConversionReportTests(unittest.TestCase):
             ),
             1,
         )
-        panel = PanelConversor.__new__(PanelConversor)
-        panel.raiz = ImmediateRoot()
+        panel = ConverterPanel.__new__(ConverterPanel)
+        panel.root = ImmediateRoot()
         panel.report_source_root = self.root
         panel.report_output_format = "WebP"
         panel.report_settings = {}
         panel.batch_started_at = self.now
         panel.report_absolute = False
         captured: dict[str, object] = {}
-        panel.mostrar_resultados = lambda destination, result, report: captured.update(
+        panel.show_results = lambda destination, result, report: captured.update(
             destination=destination, summary=result, report=report
         )
         with patch(
-            "png_a_webp.write_report_atomic", side_effect=PermissionError("locked")
+            "ui.base.write_report_atomic", side_effect=PermissionError("locked")
         ):
-            panel.generar_informe(self.output_root, summary)
+            panel.write_report(self.output_root, summary)
         final = captured["summary"]
         self.assertEqual(final.converted, 1)
         self.assertEqual(len(final.operation_warnings), 1)

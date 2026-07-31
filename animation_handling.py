@@ -9,6 +9,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from i18n import t
+
 
 class AnimationMode(StrEnum):
     PRESERVE = "preserve"
@@ -84,7 +86,7 @@ def frame_directory(desired: Path, maximum_attempts: int = 10_000) -> Path:
         )
         if candidate.name.casefold() not in existing:
             return candidate
-    raise FileExistsError("No se encontró una carpeta libre para los fotogramas.")
+    raise FileExistsError(t("animation.no_free_frame_directory"))
 
 
 def frame_number_width(frame_count: int) -> int:

@@ -7,6 +7,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from i18n import t
 
 OUTPUT_PREFIXES = ("converted_", "convertidos_")
 
@@ -105,7 +106,5 @@ def safe_output_directory(
     )
     destination = (output_root / relative_parent).resolve(strict=False)
     if destination != output_root and output_root not in destination.parents:
-        raise ValueError(
-            "La ruta de salida calculada queda fuera del destino permitido."
-        )
+        raise ValueError(t("discovery.output_outside_destination"))
     return destination

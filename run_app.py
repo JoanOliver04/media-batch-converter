@@ -6,6 +6,7 @@ import sys
 from tkinter import Tk, messagebox
 
 from app_logging import configure_logging
+from i18n import t
 from runtime_environment import INSTALL_COMMAND, missing_python_dependencies
 
 
@@ -13,12 +14,12 @@ def show_dependency_error(missing: list[str]) -> None:
     root = Tk()
     root.withdraw()
     messagebox.showerror(
-        "Faltan dependencias",
-        "No se puede iniciar porque faltan: "
-        + ", ".join(missing)
-        + ".\n\nInstálalas de forma explícita con:\n"
-        + INSTALL_COMMAND
-        + "\n\nLa aplicación nunca ejecuta pip automáticamente.",
+        t("launcher.missing_title"),
+        t(
+            "launcher.missing_body",
+            missing=", ".join(missing),
+            command=INSTALL_COMMAND,
+        ),
     )
     root.destroy()
 
@@ -30,7 +31,7 @@ def main() -> int:
     if required:
         show_dependency_error(required)
         return 1
-    from png_a_webp import main as application_main
+    from ui import main as application_main
 
     application_main()
     return 0

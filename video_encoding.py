@@ -7,6 +7,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from i18n import t
 
 ASPECT_MODES = {"preserve", "fit", "fill", "stretch"}
 CONTAINER_VIDEO_CODECS = {
@@ -62,33 +63,39 @@ def validate_video_settings(container: str, settings: VideoSettings) -> None:
     normalized = container.upper()
     if settings.video_codec not in CONTAINER_VIDEO_CODECS.get(normalized, set()):
         raise ValueError(
-            f"El códec de vídeo {settings.video_codec} no es compatible con {container}."
+            t(
+                "video.codec_incompatible",
+                codec=settings.video_codec,
+                container=container,
+            )
         )
     if (
         not settings.remove_audio
         and settings.audio_codec not in CONTAINER_AUDIO_CODECS.get(normalized, set())
     ):
         raise ValueError(
-            f"El códec de audio {settings.audio_codec} no es compatible con {container}."
+            t(
+                "video.audio_codec_incompatible",
+                codec=settings.audio_codec,
+                container=container,
+            )
         )
     if settings.aspect_mode not in ASPECT_MODES:
-        raise ValueError("El modo de relación de aspecto no es válido.")
+        raise ValueError(t("video.aspect_invalid"))
     if (settings.width is None) != (settings.height is None):
-        raise ValueError("La resolución requiere anchura y altura.")
+        raise ValueError(t("video.resolution_needs_both"))
     if settings.width is not None and (settings.width < 2 or settings.height < 2):
-        raise ValueError("La resolución debe ser de al menos 2 × 2 píxeles.")
+        raise ValueError(t("video.resolution_min"))
     if settings.aspect_mode in {"fit", "fill", "stretch"} and settings.width is None:
-        raise ValueError("Este modo requiere una resolución de destino.")
+        raise ValueError(t("video.mode_requires_resolution"))
     if settings.fps_cap is not None and settings.fps_cap <= 0:
-        raise ValueError("La frecuencia de fotogramas debe ser positiva.")
+        raise ValueError(t("video.fps_positive"))
     if not 0 <= settings.crf <= 63:
-        raise ValueError("El nivel CRF no es válido.")
+        raise ValueError(t("video.crf_invalid"))
     if not re.fullmatch(
         r"(?:[A-Za-z]+|#[0-9A-Fa-f]{6}|0x[0-9A-Fa-f]{6})", settings.background
     ):
-        raise ValueError(
-            "El color de bandas debe ser un nombre o un valor hexadecimal."
-        )
+        raise ValueError(t("video.background_invalid"))
 
 
 def build_video_filter(settings: VideoSettings) -> str:

@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from presets import VIDEO_PRESETS
-from png_a_webp import PanelVideo
+from ui.video_panel import VideoPanel
 from video_encoding import (
     build_video_args,
     build_video_command,
@@ -18,7 +18,6 @@ from video_encoding import (
     probe_media,
     validate_video_settings,
 )
-
 
 EXPECTED = {
     "in_app_720p": ("MP4", "libx264", "aac", 1280, 720, "preserve", 30, 23),
@@ -131,18 +130,18 @@ class DummyProgress:
 
 
 class VideoBatchTests(unittest.TestCase):
-    def make_panel(self) -> PanelVideo:
-        panel = PanelVideo.__new__(PanelVideo)
-        panel.raiz = ImmediateRoot()
-        panel.estado = DummyState()
-        panel.progreso = DummyProgress()
+    def make_panel(self) -> VideoPanel:
+        panel = VideoPanel.__new__(VideoPanel)
+        panel.root = ImmediateRoot()
+        panel.status = DummyState()
+        panel.progress = DummyProgress()
         panel.cancel_event = threading.Event()
-        panel.notificar_avance = lambda *_args: None
-        panel.finalizar_resultados = lambda *_args: None
+        panel.report_progress = lambda *_args: None
+        panel.finish_results = lambda *_args: None
         return panel
 
     def test_crop_conversion_accepts_source_without_audio_stream(self) -> None:
-        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
+        with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = root / "silent vídeo.mp4"
             source.write_bytes(b"source")
@@ -155,8 +154,8 @@ class VideoBatchTests(unittest.TestCase):
                 callback(1.0)
                 Path(command[-1]).write_bytes(b"converted")
 
-            panel.ejecutar_ffmpeg = execute
-            panel.finalizar_resultados = lambda destination, results, errors, *args: (
+            panel.run_ffmpeg = execute
+            panel.finish_results = lambda destination, results, errors, *args: (
                 completion.update(results=results)
             )
             settings = replace(
@@ -166,12 +165,13 @@ class VideoBatchTests(unittest.TestCase):
             )
             with (
                 patch(
-                    "png_a_webp.resolve_ffmpeg", return_value=Mock(path=Path("ffmpeg"))
+                    "ui.ffmpeg_panel.resolve_ffmpeg",
+                    return_value=Mock(path=Path("ffmpeg")),
                 ),
-                patch("png_a_webp.encoder_available", return_value=True),
-                patch("png_a_webp.probe_media", return_value=(1.0, False)),
+                patch("ui.ffmpeg_panel.encoder_available", return_value=True),
+                patch("ui.ffmpeg_panel.probe_media", return_value=(1.0, False)),
             ):
-                panel.convertir_ffmpeg_lote(
+                panel.convert_ffmpeg_batch(
                     root,
                     [source],
                     "MP4",
@@ -186,7 +186,7 @@ class VideoBatchTests(unittest.TestCase):
             self.assertEqual(completion["results"][0].status.value, "converted")
 
     def test_cancellation_cleans_temporary_output(self) -> None:
-        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
+        with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = root / "video.mp4"
             source.write_bytes(b"source")
@@ -197,15 +197,16 @@ class VideoBatchTests(unittest.TestCase):
                 panel.cancel_event.set()
                 raise RuntimeError("cancelled")
 
-            panel.ejecutar_ffmpeg = cancel
+            panel.run_ffmpeg = cancel
             with (
                 patch(
-                    "png_a_webp.resolve_ffmpeg", return_value=Mock(path=Path("ffmpeg"))
+                    "ui.ffmpeg_panel.resolve_ffmpeg",
+                    return_value=Mock(path=Path("ffmpeg")),
                 ),
-                patch("png_a_webp.encoder_available", return_value=True),
-                patch("png_a_webp.probe_media", return_value=(10.0, True)),
+                patch("ui.ffmpeg_panel.encoder_available", return_value=True),
+                patch("ui.ffmpeg_panel.probe_media", return_value=(10.0, True)),
             ):
-                panel.convertir_ffmpeg_lote(
+                panel.convert_ffmpeg_batch(
                     root,
                     [source],
                     "MP4",

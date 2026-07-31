@@ -8,7 +8,7 @@ from pathlib import Path
 from PIL import Image
 
 from image_resize import ResizeConfig, ResizeMode, calculate_resize_dimensions
-from png_a_webp import PanelImagen
+from ui.image_panel import ImagePanel
 
 
 class DimensionCalculationTests(unittest.TestCase):
@@ -65,14 +65,14 @@ class ResizePipelineTests(unittest.TestCase):
         image.save(stream, format="JPEG", exif=exif)
         stream.seek(0)
         with Image.open(stream) as loaded:
-            resized, target = PanelImagen.resize_frame(loaded, ResizeConfig())
+            resized, target = ImagePanel.resize_frame(loaded, ResizeConfig())
         self.assertEqual(target, (20, 40))
         self.assertEqual(resized.size, (20, 40))
 
     def test_transparency_survives_lanczos_resize(self) -> None:
         image = Image.new("RGBA", (20, 20), (1, 2, 3, 80))
         config = ResizeConfig(ResizeMode.MAX_WIDTH, width=10)
-        resized, _target = PanelImagen.resize_frame(image, config)
+        resized, _target = ImagePanel.resize_frame(image, config)
         self.assertEqual(resized.size, (10, 10))
         self.assertLess(resized.getchannel("A").getextrema()[0], 255)
 
@@ -84,11 +84,11 @@ class ResizePipelineTests(unittest.TestCase):
             source, format="GIF", save_all=True, append_images=[second], duration=50
         )
         source.seek(0)
-        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
+        with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "animation.webp"
             with Image.open(source) as animated:
-                panel = PanelImagen.__new__(PanelImagen)
-                panel.guardar_imagen(
+                panel = ImagePanel.__new__(ImagePanel)
+                panel.save_image(
                     animated,
                     output,
                     "WEBP",

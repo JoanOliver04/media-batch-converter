@@ -30,6 +30,7 @@ Desktop application for converting and optimizing images, audio, and video indiv
 - Generate privacy-aware JSON reports with chunked SHA-256 checksums.
 - Preserve supported animations, extract frames, or explicitly keep only the first frame.
 - Review validation warnings, progress, cancellation, and a final batch summary.
+- Switch the interface between Spanish and English at any time from the language selector.
 - Process everything locally. No media is uploaded.
 
 ## Supported formats
@@ -72,6 +73,26 @@ Outputs are created beside the sources in a `convertidos_<format>` directory. Ex
 - Convert a recursive image tree: Images → select folder → keep Include subfolders enabled.
 - Create an audio master: Audio → select source → WAV master preset.
 - Create a compatible MP4: Video → select source → High quality 1080p preset.
+
+## Language
+
+The interface ships in Spanish and English. Pick one from the **Idioma / Language**
+selector at the top right of the window; the change applies immediately, without
+restarting.
+
+The choice is stored with the rest of the local settings and restored on the next
+launch. Spanish is the default. Everything the user reads follows the selection:
+tabs, controls, presets, validation warnings, batch summaries, error messages and
+the text inside JSON reports. The stable `code` field of each report warning does
+not change with the language, so reports stay machine-readable either way.
+
+Switching rebuilds the tabs, so the currently selected file or folder is cleared;
+presets and output policy are preserved because they are persisted. The selector
+is refused while a conversion is running.
+
+To add another language, copy `locales/es.py`, translate the values, and register
+the module in `i18n.py`. `tests/test_i18n.py` fails if a catalogue is missing a
+key or a format placeholder, so gaps surface immediately.
 
 ## Image behavior
 
@@ -157,13 +178,24 @@ python -m ruff check .
 python -m unittest discover -s tests -q
 ```
 
-Tests cover pure calculations, error and collision policies, recursive batches, reports, image transparency and animation, Unicode audio paths, video without audio, packaged resource resolution, accessibility scaling, and integration combinations.
+Tests cover pure calculations, error and collision policies, recursive batches, reports, image transparency and animation, Unicode audio paths, video without audio, packaged resource resolution, accessibility scaling, catalogue consistency and language switching, and integration combinations.
 
 ## Project structure
 
 ```text
 run_app.py                    Safe launcher and dependency checks
-png_a_webp.py                Tkinter presentation layer
+i18n.py                       Active language and message lookup
+locales/                      One message catalogue per language (es, en)
+ui/                           Tkinter presentation layer
+  app.py                      Main window, tabs, and entry point
+  base.py                     Shared controls, batch flow, and reporting
+  ffmpeg_panel.py             Shared FFmpeg process and batch handling
+  image_panel.py              Image tab and image batch conversion
+  audio_panel.py              Audio tab
+  video_panel.py              Video tab
+  formats.py                  Supported formats and output path resolution
+  widgets.py                  Scrollable tab viewport
+  diagnostics.py              Diagnostics tab
 batch_processing.py          Recursive discovery
 conversion_results.py        Shared result and summary models
 conversion_report.py         JSON reports and streamed checksums
@@ -174,6 +206,8 @@ runtime_environment.py       Dependency and packaged-resource resolution
 version.py                   Public name and version source
 tests/                       Automated test suite
 ```
+
+Audio and video share `FFmpegPanel` rather than one inheriting from the other. Code identifiers and documentation are English; user-facing text lives in `locales/`, never inline in the modules.
 
 ## Troubleshooting
 
@@ -190,7 +224,7 @@ All processing is local. Files are not uploaded, and the application has no netw
 
 ## Limitations
 
-- The GUI text is currently Spanish while repository documentation is English.
+- Only Spanish and English are available; other languages need a new catalogue.
 - Windows is the tested packaged target; source execution elsewhere is not guaranteed.
 - Release binaries are not code-signed.
 - FFmpeg codec support and patent considerations vary by build and jurisdiction.

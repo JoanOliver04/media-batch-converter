@@ -6,6 +6,8 @@ import errno
 from dataclasses import dataclass
 from enum import StrEnum
 
+from i18n import t
+
 
 class ErrorCode(StrEnum):
     CANCELLED = "CANCELLED"
@@ -29,53 +31,51 @@ class ErrorDescription:
 def describe_error(error: BaseException) -> ErrorDescription:
     detail = str(error) or type(error).__name__
     if isinstance(error, InterruptedError):
-        return ErrorDescription(
-            ErrorCode.CANCELLED, "La operación fue cancelada.", detail
-        )
+        return ErrorDescription(ErrorCode.CANCELLED, t("error.cancelled"), detail)
     if isinstance(error, FileNotFoundError):
         return ErrorDescription(
             ErrorCode.NOT_FOUND,
-            "No se encontró el archivo de origen o una herramienta requerida.",
+            t("error.not_found"),
             detail,
         )
     if isinstance(error, PermissionError):
         return ErrorDescription(
             ErrorCode.PERMISSION_DENIED,
-            "Permiso denegado al leer el origen o escribir el destino.",
+            t("error.permission"),
             detail,
         )
     if isinstance(error, OSError) and error.errno == errno.ENOSPC:
         return ErrorDescription(
             ErrorCode.DISK_FULL,
-            "No hay espacio suficiente en el disco de destino.",
+            t("error.disk_space"),
             detail,
         )
     if isinstance(error, (ValueError, KeyError)):
         return ErrorDescription(
             ErrorCode.INVALID_SETTINGS,
-            "Los ajustes de conversión no son válidos.",
+            t("error.invalid_settings"),
             detail,
         )
     if isinstance(error, NotImplementedError):
         return ErrorDescription(
             ErrorCode.UNSUPPORTED,
-            "La operación solicitada no es compatible con esta configuración.",
+            t("error.unsupported"),
             detail,
         )
     if isinstance(error, RuntimeError):
         return ErrorDescription(
             ErrorCode.PROCESS_FAILED,
-            "El codificador no pudo completar la conversión. Consulta el registro local para ver el detalle.",
+            t("error.encoder_failed"),
             detail,
         )
     if isinstance(error, OSError):
         return ErrorDescription(
             ErrorCode.IO_ERROR,
-            "Se produjo un error al leer o escribir los archivos.",
+            t("error.io"),
             detail,
         )
     return ErrorDescription(
         ErrorCode.UNKNOWN,
-        "Se produjo un error inesperado. Consulta el registro local para ver el detalle.",
+        t("error.unexpected"),
         detail,
     )
