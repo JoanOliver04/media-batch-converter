@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,8 @@ from documents.model import DocumentModel
 from documents.security import inspect_source
 from documents.settings import DocumentSettings, validate_document_settings
 from i18n import t
+
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,11 +60,22 @@ def convert_document(
     _raise_if_cancelled(cancel_event)
     output.parent.mkdir(parents=True, exist_ok=True)
 
+    fallback_warning: str | None = None
     if engine == "libreoffice":
-        convert_with_libreoffice(
-            source, output, dest_format, cancel_event, resolved_office
-        )
-        return ConversionOutcome("libreoffice", (), None, 0)
+        try:
+            convert_with_libreoffice(
+                source, output, dest_format, cancel_event, resolved_office
+            )
+            return ConversionOutcome("libreoffice", (), None, 0)
+        except DocumentError:
+            if settings.engine != "automatic" or not builtin_supports(
+                source_format, dest_format
+            ):
+                raise
+            logging.getLogger(__name__).warning(
+                "libreoffice_fallback source=%s dest=%s", source, dest_format
+            )
+            fallback_warning = t("document.warning.libreoffice_fallback")
 
     if source_format == dest_format and source_format in PASSTHROUGH_FORMATS:
         if source_format == "PDF":
@@ -70,14 +84,20 @@ def convert_document(
             rewrite_pdf(source, output)
         else:
             shutil.copyfile(source, output)
-        return ConversionOutcome("builtin", (), None, 0)
+        return ConversionOutcome(
+            "builtin",
+            (fallback_warning,) if fallback_warning else (),
+            None,
+            0,
+        )
 
     model = read_document(source, source_format, settings)
     _raise_if_cancelled(cancel_event)
     write_document(model, output, dest_format, settings)
-    return ConversionOutcome(
-        "builtin", model.warnings, model.page_count, len(model.blocks)
-    )
+    warnings = model.warnings
+    if fallback_warning:
+        warnings = (fallback_warning, *warnings)
+    return ConversionOutcome("builtin", warnings, model.page_count, len(model.blocks))
 
 
 def read_document(

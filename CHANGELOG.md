@@ -4,6 +4,12 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 ## Unreleased
 
+## 0.2.1 - 2026-08-14
+
+### Fixed
+
+- DOCX to PDF no longer leaves an empty `convertidos_pdf` folder when LibreOffice crashes on Windows. Automatic conversion falls back to the built-in engine, and the headless call uses `soffice.exe` instead of `soffice.com`.
+
 ## 0.2.0 - 2026-08-14
 
 ### Added

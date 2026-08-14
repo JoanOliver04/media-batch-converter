@@ -42,6 +42,14 @@ from ui.formats import batch_name_collision_keys, desired_output_path
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 
+def _remove_if_empty(directory: Path) -> None:
+    try:
+        if directory.is_dir() and not any(directory.iterdir()):
+            directory.rmdir()
+    except OSError:
+        return
+
+
 @dataclass(frozen=True, slots=True)
 class DocumentBatch:
     source_root: Path
@@ -338,15 +346,18 @@ class DocumentPanel(ConverterPanel):
         office = resolve_libreoffice()
         for index, source in enumerate(files, 1):
             if self.cancel_event.is_set():
+                _remove_if_empty(batch.destination)
                 self._finish(batch, results, discovery_errors, cancelled=True)
                 return
             try:
                 results.append(self._convert_file(batch, source, office))
             except BatchCancelled:
+                _remove_if_empty(batch.destination)
                 self._finish(batch, results, discovery_errors, cancelled=True)
                 return
             self.report_progress(index, len(files), source.name)
         self.root.after(0, self.status.set, t("ui.status.finalizing"))
+        _remove_if_empty(batch.destination)
         self._finish(
             batch, results, discovery_errors, cancelled=self.cancel_event.is_set()
         )

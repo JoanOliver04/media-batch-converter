@@ -300,7 +300,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. Use the issue
 
 ## Release process
 
-The complete release checklist is in [RELEASING.md](RELEASING.md). Releases follow Semantic Versioning. The current public version is **0.2.0**. Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
+The complete release checklist is in [RELEASING.md](RELEASING.md). Releases follow Semantic Versioning. The current public version is **0.2.1**. Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 Suggested repository topics: `python`, `tkinter`, `pillow`, `ffmpeg`, `image-converter`, `audio-converter`, `video-converter`, `batch-processing`, `webp`, `desktop-app`, `media-tools`.
 

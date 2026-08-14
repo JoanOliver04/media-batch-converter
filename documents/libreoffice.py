@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from functools import lru_cache
@@ -51,6 +52,15 @@ def resolve_libreoffice() -> LibreOfficeInfo | None:
     return None
 
 
+def _conversion_executable(office: LibreOfficeInfo) -> Path:
+    """soffice.com is fine for --version but can crash on Windows convert-to."""
+    if office.path.suffix.casefold() == ".com":
+        executable = office.path.with_suffix(".exe")
+        if executable.is_file():
+            return executable
+    return office.path
+
+
 def convert_with_libreoffice(
     source: Path,
     output: Path,
@@ -73,18 +83,18 @@ def convert_with_libreoffice(
         )
     target = LIBREOFFICE_FILTERS[dest]
     output.parent.mkdir(parents=True, exist_ok=True)
-    work = output.parent / f".lo-{output.stem}-{os.getpid()}"
-    work.mkdir(parents=True, exist_ok=False)
+    work = Path(tempfile.mkdtemp(prefix="mbc-lo-"))
     profile = work / "profile"
     profile.mkdir()
     flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     command = [
-        str(office.path),
+        str(_conversion_executable(office)),
         "--headless",
         "--nologo",
         "--nofirststartwizard",
         "--norestore",
         "--nolockcheck",
+        "--nodefault",
         f"-env:UserInstallation={profile.resolve().as_uri()}",
         "--convert-to",
         target,
@@ -95,13 +105,13 @@ def convert_with_libreoffice(
     try:
         process = subprocess.Popen(
             command,
-            stdout=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
             creationflags=flags,
         )
         try:
-            stdout, stderr = _wait_for_process(process, cancel_event)
+            _stdout, stderr = _wait_for_process(process, cancel_event)
         except subprocess.TimeoutExpired as error:
             process.kill()
             process.communicate()
@@ -111,7 +121,7 @@ def convert_with_libreoffice(
             process.communicate()
             raise
         if process.returncode:
-            detail = (stderr or stdout or "").strip().splitlines()
+            detail = (stderr or "").strip().splitlines()
             logging.getLogger(__name__).error(
                 "libreoffice_failed code=%s detail=%s",
                 process.returncode,
@@ -130,8 +140,10 @@ def _find_output(directory: Path, dest_format: str) -> Path:
     extension = DOCUMENT_FORMATS[dest_format]
     matches = sorted(
         path
-        for path in directory.iterdir()
-        if path.is_file() and path.suffix.casefold() == extension
+        for path in directory.rglob("*")
+        if path.is_file()
+        and path.suffix.casefold() == extension
+        and "profile" not in path.parts
     )
     if not matches:
         raise DocumentError(

@@ -90,6 +90,7 @@ MESSAGES: dict[str, str] = {
     "document.page_heading": "Página {number}",
     "document.slide_fallback": "Diapositiva {number}",
     "document.warning.pdf_no_text": "El PDF no contiene texto extraíble; el resultado puede quedar vacío.",
+    "document.warning.libreoffice_fallback": "LibreOffice no pudo convertir el archivo; se usó el motor integrado.",
     "document.warning.image_skipped": "Una imagen embebida no se pudo leer y se omitió.",
     "document.warning.too_many_images": "Se alcanzó el límite de {limit} imágenes embebidas.",
     "document.image_placeholder": "[imagen]",

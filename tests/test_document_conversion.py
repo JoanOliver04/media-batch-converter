@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from documents.conversion import choose_engine, convert_document
 from documents.errors import DocumentError
+from documents.libreoffice import LibreOfficeInfo
 from documents.formats import builtin_supports, conversion_supported, format_from_path
 from documents.security import inspect_source, sniff_kind
 from documents.settings import DocumentSettings, validate_document_settings
@@ -177,6 +178,52 @@ class ConversionRoundTripTests(unittest.TestCase):
         convert_document(source, back, "DOCX", self.settings)
         restored = read_document(back, "DOCX", self.settings)
         self.assertTrue(any(block.kind is BlockKind.IMAGE for block in restored.blocks))
+
+    def test_automatic_falls_back_to_builtin_when_libreoffice_fails(self) -> None:
+        source = self.root / "letter.docx"
+        from docx import Document
+
+        document = Document()
+        document.add_paragraph("Carta de presentacion.")
+        document.save(str(source))
+        output = self.root / "letter.pdf"
+        office = LibreOfficeInfo(Path("C:/missing/soffice.exe"), "LibreOffice 0")
+        with patch(
+            "documents.conversion.convert_with_libreoffice",
+            side_effect=DocumentError("LibreOffice crashed"),
+        ):
+            outcome = convert_document(
+                source,
+                output,
+                "PDF",
+                DocumentSettings(engine="automatic"),
+                office=office,
+            )
+        self.assertEqual(outcome.engine, "builtin")
+        self.assertTrue(output.is_file())
+        self.assertTrue(output.read_bytes().startswith(b"%PDF"))
+        self.assertTrue(any("LibreOffice" in warning for warning in outcome.warnings))
+
+    def test_forced_libreoffice_does_not_fallback(self) -> None:
+        source = self.root / "letter.docx"
+        from docx import Document
+
+        document = Document()
+        document.add_paragraph("x")
+        document.save(str(source))
+        office = LibreOfficeInfo(Path("C:/missing/soffice.exe"), "LibreOffice 0")
+        with patch(
+            "documents.conversion.convert_with_libreoffice",
+            side_effect=DocumentError("LibreOffice crashed"),
+        ):
+            with self.assertRaises(DocumentError):
+                convert_document(
+                    source,
+                    self.root / "letter.pdf",
+                    "PDF",
+                    DocumentSettings(engine="libreoffice"),
+                    office=office,
+                )
 
     def test_csv_xlsx_round_trip(self) -> None:
         source = self.root / "data.csv"
