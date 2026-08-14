@@ -7,6 +7,8 @@ from functools import lru_cache
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+from io import BytesIO
+
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
@@ -16,6 +18,7 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
+    Image as PDFImage,
     ListFlowable,
     ListItem,
     PageBreak,
@@ -28,8 +31,9 @@ from reportlab.platypus import (
 )
 
 from documents.errors import DocumentError
+from documents.images import normalize_image
 from documents.model import Block, BlockKind, DocumentModel
-from documents.security import MAX_BLOCKS, MAX_PAGES
+from documents.security import MAX_BLOCKS, MAX_IMAGES, MAX_PAGES
 from documents.settings import DocumentSettings
 from error_handling import ErrorCode
 from i18n import t
@@ -49,6 +53,7 @@ def read_pdf(path: Path, settings: DocumentSettings) -> DocumentModel:
     if pages > MAX_PAGES:
         raise DocumentError(t("document.too_many_pages", limit=MAX_PAGES))
     blocks: list[Block] = []
+    warnings: list[str] = []
     for index, page in enumerate(reader.pages, 1):
         _ensure_block_budget(len(blocks))
         if settings.page_markers and pages > 1:
@@ -70,14 +75,14 @@ def read_pdf(path: Path, settings: DocumentSettings) -> DocumentModel:
         for chunk in _split_extracted(extracted):
             _ensure_block_budget(len(blocks))
             blocks.append(Block(BlockKind.PARAGRAPH, chunk))
+        _append_pdf_images(page, blocks, warnings)
         if index < pages:
             blocks.append(Block(BlockKind.PAGE_BREAK))
-    warnings = ()
     if not any(
         block.text.strip() for block in blocks if block.kind is BlockKind.PARAGRAPH
-    ):
-        warnings = (t("document.warning.pdf_no_text"),)
-    return DocumentModel(None, tuple(blocks), warnings, pages, "PDF")
+    ) and not any(block.kind is BlockKind.IMAGE for block in blocks):
+        warnings.append(t("document.warning.pdf_no_text"))
+    return DocumentModel(None, tuple(blocks), tuple(warnings), pages, "PDF")
 
 
 def write_pdf(model: DocumentModel, path: Path, settings: DocumentSettings) -> None:
@@ -128,6 +133,7 @@ def write_pdf(model: DocumentModel, path: Path, settings: DocumentSettings) -> N
     )
 
     story: list = []
+    buffers: list[BytesIO] = []
     if model.title:
         story.append(Paragraph(escape(model.title), styles["DocTitle"]))
         story.append(Spacer(1, 4 * mm))
@@ -172,23 +178,43 @@ def write_pdf(model: DocumentModel, path: Path, settings: DocumentSettings) -> N
             if table is not None:
                 story.append(table)
                 story.append(Spacer(1, 4 * mm))
+        elif block.kind is BlockKind.IMAGE and block.image_bytes:
+            flowable = _pdf_image(block.image_bytes, page_size[0] - 40 * mm, buffers)
+            if flowable is not None:
+                story.append(flowable)
+                story.append(Spacer(1, 4 * mm))
         elif block.kind is BlockKind.PAGE_BREAK:
             story.append(PageBreak())
     flush_list()
     if not story:
         story.append(Paragraph(" ", styles["DocBody"]))
 
+    top_margin = 22 * mm if model.header else 16 * mm
+    bottom_margin = 20 * mm if model.footer else 16 * mm
     document = SimpleDocTemplate(
         str(path),
         pagesize=page_size,
         leftMargin=18 * mm,
         rightMargin=18 * mm,
-        topMargin=16 * mm,
-        bottomMargin=16 * mm,
+        topMargin=top_margin,
+        bottomMargin=bottom_margin,
         title=model.title or "",
         author="",
     )
-    document.build(story)
+    header, footer, font = model.header, model.footer, regular
+
+    def draw_chrome(canvas, doc) -> None:
+        canvas.saveState()
+        canvas.setFont(font, 8)
+        canvas.setFillColor(colors.HexColor("#8A94A6"))
+        if header:
+            canvas.drawString(18 * mm, page_size[1] - 12 * mm, header[:120])
+        if footer:
+            canvas.drawString(18 * mm, 10 * mm, footer[:90])
+        canvas.drawRightString(page_size[0] - 18 * mm, 10 * mm, str(doc.page))
+        canvas.restoreState()
+
+    document.build(story, onFirstPage=draw_chrome, onLaterPages=draw_chrome)
 
 
 def rewrite_pdf(source: Path, output: Path) -> None:
@@ -253,6 +279,50 @@ def _pdf_table(rows: tuple[tuple[str, ...], ...], style, width: float):
         )
     )
     return table
+
+
+def _append_pdf_images(page, blocks: list[Block], warnings: list[str]) -> None:
+    try:
+        images = list(page.images)
+    except Exception:
+        return
+    already = sum(block.kind is BlockKind.IMAGE for block in blocks)
+    for image in images:
+        if already >= MAX_IMAGES:
+            warning = t("document.warning.too_many_images", limit=MAX_IMAGES)
+            if warning not in warnings:
+                warnings.append(warning)
+            return
+        data = getattr(image, "data", None)
+        if not isinstance(data, bytes):
+            continue
+        normalized = normalize_image(data)
+        if normalized is None:
+            if t("document.warning.image_skipped") not in warnings:
+                warnings.append(t("document.warning.image_skipped"))
+            continue
+        _ensure_block_budget(len(blocks))
+        blocks.append(
+            Block(
+                BlockKind.IMAGE,
+                image_bytes=normalized.data,
+                image_format=normalized.format,
+            )
+        )
+        already += 1
+
+
+def _pdf_image(data: bytes, max_width: float, buffers: list[BytesIO]):
+    normalized = normalize_image(data)
+    if normalized is None:
+        return None
+    buffer = BytesIO(normalized.data)
+    buffers.append(buffer)
+    width, height = float(normalized.width), float(normalized.height)
+    if width <= 0 or height <= 0:
+        return None
+    scale = min(max_width / width, 1.0)
+    return PDFImage(buffer, width=width * scale, height=height * scale)
 
 
 def _split_extracted(text: str) -> list[str]:

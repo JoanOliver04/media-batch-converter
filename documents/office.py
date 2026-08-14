@@ -5,9 +5,12 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
+from io import BytesIO
+
 from docx import Document
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from docx.oxml.ns import qn
+from docx.shared import Inches as DocxInches
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 from openpyxl import Workbook, load_workbook
@@ -15,20 +18,28 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 
 from documents.errors import DocumentError
+from documents.images import normalize_image
 from documents.model import Block, BlockKind, DocumentModel
-from documents.security import MAX_BLOCKS, MAX_TABLE_CELLS
+from documents.security import MAX_BLOCKS, MAX_IMAGES, MAX_TABLE_CELLS
 from documents.textio import read_text_file
 from i18n import t
+
+_BLIP = "{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
+_EMBED = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
 
 
 def read_docx(path: Path) -> DocumentModel:
     document = Document(str(path))
     blocks: list[Block] = []
+    warnings: list[str] = []
     cells = 0
+    images = 0
     title: str | None = None
+    header, footer = _header_footer_text(document)
     for item in _iter_docx_items(document):
         _ensure_block_budget(len(blocks))
         if isinstance(item, Paragraph):
+            images += _append_images(document, item._element, blocks, warnings, images)
             text = item.text.strip()
             if not text:
                 continue
@@ -56,11 +67,24 @@ def read_docx(path: Path) -> DocumentModel:
             raise DocumentError(t("document.too_many_cells", limit=MAX_TABLE_CELLS))
         if rows:
             blocks.append(Block(BlockKind.TABLE, rows=rows))
-    return DocumentModel(title, tuple(blocks), source_format="DOCX")
+    return DocumentModel(
+        title,
+        tuple(blocks),
+        tuple(warnings),
+        source_format="DOCX",
+        header=header,
+        footer=footer,
+    )
 
 
 def write_docx(model: DocumentModel, path: Path) -> None:
     document = Document()
+    if model.header or model.footer:
+        section = document.sections[0]
+        if model.header:
+            section.header.paragraphs[0].text = model.header
+        if model.footer:
+            section.footer.paragraphs[0].text = model.footer
     if model.title:
         document.add_heading(model.title, level=0)
     for block in model.blocks:
@@ -77,6 +101,8 @@ def write_docx(model: DocumentModel, path: Path) -> None:
                 run.font.name = "Consolas"
         elif block.kind is BlockKind.TABLE:
             _write_docx_table(document, block.rows)
+        elif block.kind is BlockKind.IMAGE and block.image_bytes:
+            document.add_picture(BytesIO(block.image_bytes), width=DocxInches(5.5))
         elif block.kind is BlockKind.PAGE_BREAK:
             document.add_page_break()
     if not document.paragraphs and not document.tables:
@@ -210,6 +236,73 @@ def write_pptx(model: DocumentModel, path: Path) -> None:
     if not presentation.slides:
         presentation.slides.add_slide(blank)
     presentation.save(str(path))
+
+
+def _header_footer_text(document: Document) -> tuple[str | None, str | None]:
+    headers: list[str] = []
+    footers: list[str] = []
+    for section in document.sections:
+        if not section.header.is_linked_to_previous:
+            headers.extend(
+                paragraph.text.strip()
+                for paragraph in section.header.paragraphs
+                if paragraph.text.strip()
+            )
+        if not section.footer.is_linked_to_previous:
+            footers.extend(
+                paragraph.text.strip()
+                for paragraph in section.footer.paragraphs
+                if paragraph.text.strip()
+            )
+    header = " — ".join(headers) or None
+    footer = " — ".join(footers) or None
+    return header, footer
+
+
+def _append_images(
+    document: Document,
+    element,
+    blocks: list[Block],
+    warnings: list[str],
+    already: int,
+) -> int:
+    added = 0
+    for blob in _embedded_blobs(document, element):
+        if already + added >= MAX_IMAGES:
+            warning = t("document.warning.too_many_images", limit=MAX_IMAGES)
+            if warning not in warnings:
+                warnings.append(warning)
+            break
+        normalized = normalize_image(blob)
+        if normalized is None:
+            if t("document.warning.image_skipped") not in warnings:
+                warnings.append(t("document.warning.image_skipped"))
+            continue
+        _ensure_block_budget(len(blocks))
+        blocks.append(
+            Block(
+                BlockKind.IMAGE,
+                image_bytes=normalized.data,
+                image_format=normalized.format,
+            )
+        )
+        added += 1
+    return added
+
+
+def _embedded_blobs(document: Document, element) -> list[bytes]:
+    blobs: list[bytes] = []
+    for blip in element.findall(f".//{_BLIP}"):
+        relationship = blip.get(_EMBED)
+        if not relationship:
+            continue
+        part = document.part.related_parts.get(relationship)
+        if part is None:
+            continue
+        data = getattr(part, "blob", None)
+        if isinstance(data, bytes) and data:
+            blobs.append(data)
+    return blobs
 
 
 def _iter_docx_items(document: Document):

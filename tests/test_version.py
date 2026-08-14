@@ -15,7 +15,7 @@ class VersionMetadataTests(unittest.TestCase):
         metadata = render_version_info()
         self.assertIn(APP_NAME, metadata)
         self.assertIn(f'"{APP_VERSION}"', metadata)
-        self.assertEqual(version_tuple(APP_VERSION), (0, 1, 0, 0))
+        self.assertEqual(version_tuple(APP_VERSION), (0, 2, 0, 0))
 
 
 if __name__ == "__main__":

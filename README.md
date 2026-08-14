@@ -161,7 +161,7 @@ For animated sources, choose to preserve the animation, extract numbered frames,
 
 ## Document behavior
 
-The Files tab converts through a shared intermediate model, so a new format is one reader or writer rather than a new pair for every existing type. The built-in engine reconstructs text, headings, lists and tables; it does not keep the original page layout. Password-protected files fail explicitly.
+The Files tab converts through a shared intermediate model, so a new format is one reader or writer rather than a new pair for every existing type. The built-in engine reconstructs text, headings, lists, tables, embedded images and header or footer text from Word `.docx` files. It does not clone the original page geometry. Password-protected files fail explicitly.
 
 LibreOffice, when installed, is an optional high-fidelity engine for Office binaries (DOC, XLS, PPT), ODF and layout-sensitive pairs such as DOCX → PDF. It is resolved the same way as FFmpeg: never downloaded, never invoked through a shell, isolated with a temporary user profile, and subject to a timeout. Set `LIBREOFFICE_PATH` to point at `soffice.exe` if the usual install locations are not used.
 
@@ -300,7 +300,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. Use the issue
 
 ## Release process
 
-The complete release checklist is in [RELEASING.md](RELEASING.md). Releases follow Semantic Versioning; the initial public version is **0.1.0** because the application is functional but the public API and packaging remain early. Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
+The complete release checklist is in [RELEASING.md](RELEASING.md). Releases follow Semantic Versioning. The current public version is **0.2.0**. Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 Suggested repository topics: `python`, `tkinter`, `pillow`, `ffmpeg`, `image-converter`, `audio-converter`, `video-converter`, `batch-processing`, `webp`, `desktop-app`, `media-tools`.
 

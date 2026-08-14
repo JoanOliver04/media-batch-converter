@@ -147,6 +147,37 @@ class ConversionRoundTripTests(unittest.TestCase):
         self.assertIn("Primera linea", body)
         self.assertIn("Segunda linea", body)
 
+    def test_word_docx_keeps_images_and_header_in_pdf(self) -> None:
+        from docx import Document
+        from docx.shared import Inches
+        from PIL import Image
+
+        from documents.conversion import read_document
+        from documents.model import BlockKind
+
+        picture = self.root / "marca.png"
+        Image.new("RGB", (48, 24), "red").save(picture)
+        source = self.root / "informe.docx"
+        document = Document()
+        document.sections[0].header.paragraphs[0].text = "Acme S.L."
+        document.add_paragraph("Informe con figura")
+        document.add_picture(str(picture), width=Inches(1.2))
+        document.save(str(source))
+
+        model = read_document(source, "DOCX", self.settings)
+        self.assertEqual(model.header, "Acme S.L.")
+        self.assertTrue(any(block.kind is BlockKind.IMAGE for block in model.blocks))
+
+        pdf = self.root / "informe.pdf"
+        convert_document(source, pdf, "PDF", self.settings)
+        self.assertTrue(pdf.read_bytes().startswith(b"%PDF"))
+        self.assertGreater(pdf.stat().st_size, 1_500)
+
+        back = self.root / "informe-back.docx"
+        convert_document(source, back, "DOCX", self.settings)
+        restored = read_document(back, "DOCX", self.settings)
+        self.assertTrue(any(block.kind is BlockKind.IMAGE for block in restored.blocks))
+
     def test_csv_xlsx_round_trip(self) -> None:
         source = self.root / "data.csv"
         source.write_text("nombre,valor\nalfa,1\nbeta,2\n", encoding="utf-8")

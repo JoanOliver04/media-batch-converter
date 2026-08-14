@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import html
 import re
 from html.parser import HTMLParser
@@ -146,6 +147,8 @@ def render_plain(model: DocumentModel) -> str:
             for row in block.rows:
                 lines.append("\t".join(row))
             lines.append("")
+        elif block.kind is BlockKind.IMAGE:
+            lines.extend((t("document.image_placeholder"), ""))
         elif block.kind is BlockKind.PAGE_BREAK:
             lines.append("")
     return "\n".join(lines).rstrip() + "\n"
@@ -176,6 +179,8 @@ def render_markdown(model: DocumentModel) -> str:
             for row in normalized[1:]:
                 lines.append("| " + " | ".join(row) + " |")
             lines.append("")
+        elif block.kind is BlockKind.IMAGE:
+            lines.extend((t("document.image_placeholder"), ""))
         elif block.kind is BlockKind.PAGE_BREAK:
             lines.append("")
     return "\n".join(lines).rstrip() + "\n"
@@ -225,6 +230,10 @@ def render_html(model: DocumentModel) -> str:
                 cells = "".join(f"<td>{html.escape(cell)}</td>" for cell in row)
                 parts.append(f"<tr>{cells}</tr>")
             parts.append("</table>")
+        elif block.kind is BlockKind.IMAGE and block.image_bytes:
+            mime = "image/png" if block.image_format == "PNG" else "image/jpeg"
+            payload = base64.standard_b64encode(block.image_bytes).decode("ascii")
+            parts.append(f'<p><img alt="" src="data:{mime};base64,{payload}"></p>')
         elif block.kind is BlockKind.PAGE_BREAK:
             parts.append('<hr class="page-break">')
     close_list()
