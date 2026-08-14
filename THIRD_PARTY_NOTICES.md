@@ -16,6 +16,10 @@ Windows distributions produced by this repository bundle the FFmpeg executable s
 
 The pinned Windows binary is FFmpeg 7.1 essentials from gyan.dev and reports `--enable-gpl --enable-version3`; redistribution must therefore be treated as GPLv3-or-later rather than LGPL-only. A release must retain the applicable notices, identify the exact source at https://www.gyan.dev/ffmpeg/builds/, and satisfy the corresponding-source obligations. Codec patents and other obligations can vary by jurisdiction. See https://ffmpeg.org/legal.html.
 
+## Document libraries
+
+The Files tab uses `python-docx`, `pypdf`, `reportlab`, `openpyxl` and `python-pptx` from PyPI. Each keeps its own license (MIT, BSD-style or Apache, as declared by the installed package). LibreOffice is never bundled; when the user has it installed it is invoked as an optional local engine.
+
 ## PyInstaller and Ruff
 
 PyInstaller is a GPLv2-or-later project with an exception that permits distributing bundled applications under other licenses. Ruff is used only during development and is MIT-licensed. Consult each installed distribution for authoritative terms.

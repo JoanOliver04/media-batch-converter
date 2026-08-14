@@ -11,11 +11,13 @@ import screenshot  # noqa: E402
 
 from presets import (  # noqa: E402
     AUDIO_PRESETS,
+    DOCUMENT_PRESETS,
     IMAGE_PRESETS,
     VIDEO_PRESETS,
     preset_by_id,
 )
 from ui.audio_panel import AudioPanel  # noqa: E402
+from ui.document_panel import DocumentPanel  # noqa: E402
 from ui.image_panel import ImagePanel  # noqa: E402
 from ui.video_panel import VideoPanel  # noqa: E402
 
@@ -24,7 +26,7 @@ class ToolContractTests(unittest.TestCase):
     """La herramienta usa la app por reflexión, así que un renombrado la
     rompería sin que nadie se entere hasta ir a regenerar las capturas."""
 
-    PANELS = {0: ImagePanel, 1: AudioPanel, 2: VideoPanel}
+    PANELS = {0: ImagePanel, 1: AudioPanel, 2: VideoPanel, 3: DocumentPanel}
 
     def test_preset_methods_exist_on_their_panels(self) -> None:
         for index, method in screenshot.PRESET_METHOD.items():
@@ -47,7 +49,12 @@ class ToolContractTests(unittest.TestCase):
                 self.assertIn(f"docs/screenshots/{filename}", readme)
 
     def test_each_media_preset_belongs_to_its_own_tab(self) -> None:
-        catalogues = {0: IMAGE_PRESETS, 1: AUDIO_PRESETS, 2: VIDEO_PRESETS}
+        catalogues = {
+            0: IMAGE_PRESETS,
+            1: AUDIO_PRESETS,
+            2: VIDEO_PRESETS,
+            3: DOCUMENT_PRESETS,
+        }
         for tab, _filename, preset_id in screenshot.README_SHOTS:
             index = screenshot.TABS[tab]
             with self.subTest(tab=tab):

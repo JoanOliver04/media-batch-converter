@@ -110,7 +110,7 @@ class HighDpiUiTests(IsolatedSettingsMixin, unittest.TestCase):
                 self.assertLessEqual(root.winfo_reqwidth(), width)
                 self.assertLessEqual(root.winfo_reqheight(), height)
                 notebook = find_notebook(root)
-                tabs = [notebook.nametowidget(tab) for tab in notebook.tabs()[:3]]
+                tabs = [notebook.nametowidget(tab) for tab in notebook.tabs()[:4]]
                 self.assertTrue(all(isinstance(tab, ScrollableTab) for tab in tabs))
                 self.assertTrue(
                     all(tab.canvas.cget("takefocus") == "1" for tab in tabs)

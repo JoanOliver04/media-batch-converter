@@ -8,6 +8,7 @@ import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from documents.settings import DocumentSettings
 from i18n import normalized_language, t
 from video_encoding import VideoSettings
 from webp_encoding import WebPMode
@@ -43,6 +44,7 @@ class ConversionPreset:
     resize_mode: str = "original"
     audio_settings: AudioSettings | None = None
     video_settings: VideoSettings | None = None
+    document_settings: DocumentSettings | None = None
 
     @property
     def display_name(self) -> str:
@@ -173,9 +175,54 @@ VIDEO_PRESETS = (
         ),
     ),
 )
+
+DOCUMENT_PRESETS = (
+    ConversionPreset(
+        "document_pdf_archive",
+        "document",
+        "PDF",
+        document_settings=DocumentSettings("a4", "automatic", True),
+    ),
+    ConversionPreset(
+        "document_editable_docx",
+        "document",
+        "DOCX",
+        document_settings=DocumentSettings("a4", "automatic", True),
+    ),
+    ConversionPreset(
+        "document_plain_text",
+        "document",
+        "TXT",
+        document_settings=DocumentSettings("a4", "builtin", False),
+    ),
+    ConversionPreset(
+        "document_markdown_notes",
+        "document",
+        "MD",
+        document_settings=DocumentSettings("a4", "builtin", False),
+    ),
+    ConversionPreset(
+        "document_spreadsheet_csv",
+        "document",
+        "CSV",
+        document_settings=DocumentSettings("a4", "builtin", False),
+    ),
+    ConversionPreset(
+        "document_html_export",
+        "document",
+        "HTML",
+        document_settings=DocumentSettings("a4", "builtin", False),
+    ),
+    ConversionPreset(
+        "document_slides_pptx",
+        "document",
+        "PPTX",
+        document_settings=DocumentSettings("a4", "automatic", True),
+    ),
+)
 PRESETS_BY_ID = {
     preset.preset_id: preset
-    for preset in (*IMAGE_PRESETS, *AUDIO_PRESETS, *VIDEO_PRESETS)
+    for preset in (*IMAGE_PRESETS, *AUDIO_PRESETS, *VIDEO_PRESETS, *DOCUMENT_PRESETS)
 }
 
 
@@ -202,6 +249,23 @@ def preset_matches(
     if preset.webp_mode is not None and preset.webp_mode.value != webp_mode:
         return False
     return preset.resize_mode == resize_mode
+
+
+def document_preset_matches(
+    preset: ConversionPreset,
+    output_format: str,
+    page_size: str,
+    engine: str,
+    page_markers: bool,
+) -> bool:
+    settings = preset.document_settings
+    if settings is None or preset.output_format != output_format:
+        return False
+    return (
+        settings.page_size == page_size
+        and settings.engine == engine
+        and settings.page_markers == page_markers
+    )
 
 
 def default_settings_path() -> Path:
@@ -301,6 +365,18 @@ class SettingsStore:
             preset_id if preset_id in video_ids else CUSTOM_PRESET_ID,
         )
 
+    def load_last_document_preset(self) -> str:
+        value = self._read().get("last_document_preset")
+        document_ids = {preset.preset_id for preset in DOCUMENT_PRESETS}
+        return value if value in document_ids else CUSTOM_PRESET_ID
+
+    def save_last_document_preset(self, preset_id: str) -> None:
+        document_ids = {preset.preset_id for preset in DOCUMENT_PRESETS}
+        self._update(
+            "last_document_preset",
+            preset_id if preset_id in document_ids else CUSTOM_PRESET_ID,
+        )
+
     def load_animation_mode(self) -> str:
         value = self._read().get("animation_mode")
         return (
@@ -330,5 +406,10 @@ def public_preset_data() -> list[dict[str, object]]:
             "display_name": preset.display_name,
             "description": preset.description,
         }
-        for preset in (*IMAGE_PRESETS, *AUDIO_PRESETS, *VIDEO_PRESETS)
+        for preset in (
+            *IMAGE_PRESETS,
+            *AUDIO_PRESETS,
+            *VIDEO_PRESETS,
+            *DOCUMENT_PRESETS,
+        )
     ]

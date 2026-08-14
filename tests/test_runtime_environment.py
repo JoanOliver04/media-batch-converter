@@ -178,6 +178,7 @@ class AvailabilityUiTests(IsolatedSettingsMixin, unittest.TestCase):
             self.assertEqual(notebook.tab(tabs[1], "state"), "disabled")
             self.assertEqual(notebook.tab(tabs[2], "state"), "disabled")
             self.assertEqual(notebook.tab(tabs[3], "state"), "normal")
+            self.assertEqual(notebook.tab(tabs[4], "state"), "normal")
         finally:
             root.destroy()
 

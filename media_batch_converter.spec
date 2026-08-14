@@ -14,7 +14,13 @@ a = Analysis(
     datas=[],
     hiddenimports=collect_submodules("PIL")
     + collect_submodules("locales")
-    + collect_submodules("ui"),
+    + collect_submodules("ui")
+    + collect_submodules("documents")
+    + collect_submodules("docx")
+    + collect_submodules("pypdf")
+    + collect_submodules("reportlab")
+    + collect_submodules("openpyxl")
+    + collect_submodules("pptx"),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

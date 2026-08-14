@@ -44,7 +44,7 @@ from PIL import Image  # noqa: E402
 from i18n import Language, set_language  # noqa: E402
 from ui.app import ConverterApp  # noqa: E402
 
-TABS = {"images": 0, "audio": 1, "video": 2, "diagnostics": 3}
+TABS = {"images": 0, "audio": 1, "video": 2, "files": 3, "diagnostics": 4}
 
 #: Preset applied per tab so the screenshots show a populated panel instead of
 #: the empty "Custom" state. Each panel exposes its own apply method.
@@ -52,13 +52,15 @@ PRESET_METHOD = {
     0: "apply_preset_id",
     1: "apply_audio_preset_id",
     2: "apply_video_preset_id",
+    3: "apply_document_preset_id",
 }
 
-#: The three images referenced by the README.
+#: The images referenced by the README.
 README_SHOTS = (
     ("images", "images-tab.png", "thumbnail"),
     ("audio", "audio-tab.png", "voice_dialogue"),
     ("video", "video-tab.png", "vertical_social"),
+    ("files", "files-tab.png", "document_pdf_archive"),
 )
 
 
@@ -194,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--all",
         action="store_true",
-        help="regenerate the three screenshots used by the README",
+        help="regenerate the README screenshots",
     )
     parser.add_argument(
         "--output-dir",

@@ -1,6 +1,6 @@
 # Media Batch Converter
 
-Desktop application for converting and optimizing images, audio, and video individually or in batches. It is built with Python, Tkinter, Pillow, and FFmpeg.
+Desktop application for converting and optimizing images, audio, video, and documents individually or in batches. It is built with Python, Tkinter, Pillow, and FFmpeg, with an optional LibreOffice engine for high-fidelity office files.
 
 ## Screenshots
 
@@ -16,12 +16,16 @@ Desktop application for converting and optimizing images, audio, and video indiv
 
 ![Media Batch Converter video conversion tab](docs/screenshots/video-tab.png)
 
+### File conversion
+
+![Media Batch Converter file conversion tab](docs/screenshots/files-tab.png)
+
 ## Features
 
 - Convert one file or entire folders, with optional recursive discovery and preserved subfolder structure.
-- Convert common image, audio, and video formats from separate tabs.
+- Convert common image, audio, video, and document formats from separate tabs.
 - Choose WebP automatic, lossy, or lossless encoding.
-- Apply image, audio, and video presets, then refine settings manually.
+- Apply image, audio, video, and file presets, then refine settings manually.
 - Resize images proportionally while preserving transparency where the destination supports alpha.
 - Create multi-resolution ICO favicons from logos and other images.
 - Control video resolution, frame-rate limit, aspect handling, codecs, audio removal, and CRF quality.
@@ -41,6 +45,7 @@ Desktop application for converting and optimizing images, audio, and video indiv
 | Images | PNG, JPG, WebP, ICO, BMP, TIFF, GIF |
 | Audio | MP3, WAV, FLAC, OGG, M4A/AAC, Opus |
 | Video | MP4, MKV, WebM, MOV, AVI |
+| Files | PDF, DOCX, ODT, RTF, TXT, Markdown, HTML, XLSX, CSV, PPTX; DOC/XLS/PPT/ODP through LibreOffice |
 
 Exact codec availability depends on the Pillow and FFmpeg builds in use. Transparency is retained for compatible image formats; JPEG uses a white background. Animated output is runtime-probed because codec support varies.
 
@@ -74,6 +79,8 @@ Outputs are created beside the sources in a `convertidos_<format>` directory. Ex
 - Convert a recursive image tree: Images → select folder → keep Include subfolders enabled.
 - Create an audio master: Audio → select source → WAV master preset.
 - Create a compatible MP4: Video → select source → High quality 1080p preset.
+- Convert a Word file to PDF: Files → select a DOCX → PDF archive preset → Start.
+- Extract text from a PDF: Files → select a PDF → Plain text preset → Start.
 
 ## Interface
 
@@ -152,6 +159,14 @@ Available modes preserve dimensions, limit width, limit height, fit within a box
 
 For animated sources, choose to preserve the animation, extract numbered frames, or keep the first frame. Preservation retains frame order, duration, loop, transparency, and disposal as far as Pillow and the destination codec allow. Unsupported animated destinations fail explicitly rather than silently discarding frames.
 
+## Document behavior
+
+The Files tab converts through a shared intermediate model, so a new format is one reader or writer rather than a new pair for every existing type. The built-in engine reconstructs text, headings, lists and tables; it does not keep the original page layout. Password-protected files fail explicitly.
+
+LibreOffice, when installed, is an optional high-fidelity engine for Office binaries (DOC, XLS, PPT), ODF and layout-sensitive pairs such as DOCX → PDF. It is resolved the same way as FFmpeg: never downloaded, never invoked through a shell, isolated with a temporary user profile, and subject to a timeout. Set `LIBREOFFICE_PATH` to point at `soffice.exe` if the usual install locations are not used.
+
+Sources are sniffed by magic bytes, Office packages are checked for zip bombs, and empty files, symlinks and extension mismatches are rejected before a reader opens them.
+
 ## Presets and output safety
 
 Image presets cover high-quality illustration, general mobile assets, large backgrounds, transparent UI assets, thumbnails, and lossless archives. Audio presets cover playback music, ambience, effects, WAV masters, and voice. Video presets cover 720p, 1080p, vertical social output, horizontal trailers, and VP9 WebM.
@@ -174,7 +189,7 @@ FFmpeg is resolved in this order:
 2. The executable provided by `imageio-ffmpeg`.
 3. An `ffmpeg` command on `PATH`.
 
-Images remain available when FFmpeg is missing; audio and video tabs are disabled. The Diagnostics tab shows the selected provider and an anonymized path. FFmpeg processes are cancellable and partial temporary outputs are cleaned up.
+Images remain available when FFmpeg is missing; audio and video tabs are disabled. The Files tab stays available with the built-in engine; it is disabled only when the document libraries themselves are missing. The Diagnostics tab shows the selected FFmpeg provider, LibreOffice if present, and anonymized paths. FFmpeg and LibreOffice processes are cancellable and partial temporary outputs are cleaned up.
 
 ## Run from source
 
@@ -236,6 +251,13 @@ ui/                           Tkinter presentation layer
   theme.py                    Palette, typography and ttk styling
   widgets.py                  Scrollable tab viewport
   diagnostics.py              Diagnostics tab
+  document_panel.py           Files tab
+documents/                    Document conversion package
+  conversion.py               Engine choice and one-file orchestration
+  formats.py                  Conversion matrix
+  security.py                 Type sniffing and zip-bomb limits
+  textio.py / pdfio.py / office.py  Built-in readers and writers
+  libreoffice.py              Optional high-fidelity engine
 batch_processing.py          Recursive discovery
 conversion_results.py        Shared result and summary models
 conversion_report.py         JSON reports and streamed checksums

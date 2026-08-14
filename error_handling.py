@@ -28,8 +28,19 @@ class ErrorDescription:
     detail: str
 
 
+class UserFacingError(Exception):
+    """An exception whose message is already translated for the user."""
+
+    def __init__(self, message: str, code: ErrorCode = ErrorCode.UNSUPPORTED) -> None:
+        super().__init__(message)
+        self.user_message = message
+        self.error_code = code
+
+
 def describe_error(error: BaseException) -> ErrorDescription:
     detail = str(error) or type(error).__name__
+    if isinstance(error, UserFacingError):
+        return ErrorDescription(error.error_code, error.user_message, detail)
     if isinstance(error, InterruptedError):
         return ErrorDescription(ErrorCode.CANCELLED, t("error.cancelled"), detail)
     if isinstance(error, FileNotFoundError):

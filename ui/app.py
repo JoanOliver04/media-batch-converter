@@ -13,9 +13,10 @@ from i18n import (
     t,
 )
 from presets import SettingsStore
-from runtime_environment import resolve_ffmpeg
+from runtime_environment import missing_document_dependencies, resolve_ffmpeg
 from ui.audio_panel import AudioPanel
 from ui.diagnostics import DiagnosticsPanel
+from ui.document_panel import DocumentPanel
 from ui.image_panel import ImagePanel
 from ui.theme import apply_theme
 from ui.video_panel import VideoPanel
@@ -84,10 +85,17 @@ class ConverterApp:
         image_tab = ScrollableTab(notebook, ImagePanel, self.root)
         audio_tab = ScrollableTab(notebook, AudioPanel, self.root)
         video_tab = ScrollableTab(notebook, VideoPanel, self.root)
-        self.panels = (image_tab.panel, audio_tab.panel, video_tab.panel)
+        document_tab = ScrollableTab(notebook, DocumentPanel, self.root)
+        self.panels = (
+            image_tab.panel,
+            audio_tab.panel,
+            video_tab.panel,
+            document_tab.panel,
+        )
         notebook.add(image_tab, text=t("ui.tab.images"))
         notebook.add(audio_tab, text=t("ui.tab.audio"))
         notebook.add(video_tab, text=t("ui.tab.video"))
+        notebook.add(document_tab, text=t("ui.tab.files"))
         notebook.add(
             DiagnosticsPanel(notebook, self.root), text=t("ui.tab.diagnostics")
         )
@@ -97,6 +105,9 @@ class ConverterApp:
             video_tab.panel.status.set(unavailable)
             notebook.tab(audio_tab, state="disabled")
             notebook.tab(video_tab, state="disabled")
+        if missing_document_dependencies():
+            document_tab.panel.status.set(t("ui.document.tabs_disabled"))
+            notebook.tab(document_tab, state="disabled")
 
     def conversion_running(self) -> bool:
         return any(getattr(panel, "busy", False) for panel in self.panels)

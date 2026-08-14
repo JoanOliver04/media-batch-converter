@@ -17,6 +17,14 @@ from version import APP_NAME, APP_VERSION
 
 INSTALL_COMMAND = "python -m pip install -r requirements.txt"
 
+DOCUMENT_PYTHON_DEPENDENCIES = (
+    ("docx", "python-docx"),
+    ("pypdf", "pypdf"),
+    ("reportlab", "reportlab"),
+    ("openpyxl", "openpyxl"),
+    ("pptx", "python-pptx"),
+)
+
 #: Códigos estables del proveedor de FFmpeg; se traducen solo al mostrarse.
 FFMPEG_SOURCE_BUNDLED = "bundled"
 FFMPEG_SOURCE_SYSTEM = "system"
@@ -49,7 +57,18 @@ def missing_python_dependencies() -> list[str]:
     for import_name, distribution in (
         ("PIL", "Pillow"),
         ("imageio_ffmpeg", "imageio-ffmpeg"),
+        *DOCUMENT_PYTHON_DEPENDENCIES,
     ):
+        try:
+            importlib.import_module(import_name)
+        except ImportError:
+            missing.append(distribution)
+    return missing
+
+
+def missing_document_dependencies() -> list[str]:
+    missing = []
+    for import_name, distribution in DOCUMENT_PYTHON_DEPENDENCIES:
         try:
             importlib.import_module(import_name)
         except ImportError:
@@ -148,6 +167,21 @@ def diagnostics_text(ffmpeg: FFmpegInfo | None = None) -> str:
         imageio_version = t("diagnostics.imageio_unavailable")
     ffmpeg = ffmpeg if ffmpeg is not None else resolve_ffmpeg()
     packaged = t("diagnostics.packaged_suffix") if getattr(sys, "frozen", False) else ""
+    document_versions = []
+    for import_name, distribution in DOCUMENT_PYTHON_DEPENDENCIES:
+        try:
+            module = importlib.import_module(import_name)
+            document_versions.append(
+                f"{distribution}: {getattr(module, '__version__', t('diagnostics.unavailable'))}"
+            )
+        except ImportError:
+            document_versions.append(f"{distribution}: {unavailable}")
+    try:
+        from documents.libreoffice import resolve_libreoffice
+
+        office = resolve_libreoffice()
+    except Exception:
+        office = None
     lines = [
         f"{t('diagnostics.line.application')}: {APP_NAME} {APP_VERSION}",
         f"{t('diagnostics.line.system')}: {platform.platform()}",
@@ -159,6 +193,11 @@ def diagnostics_text(ffmpeg: FFmpegInfo | None = None) -> str:
         f"{ffmpeg_source_label(ffmpeg.source) if ffmpeg else t('diagnostics.none')}",
         f"{t('diagnostics.line.ffmpeg_path')}: "
         f"{private_path(ffmpeg.path) if ffmpeg else unavailable}",
+        f"{t('diagnostics.line.libreoffice')}: "
+        f"{office.version if office else unavailable}",
+        f"{t('diagnostics.line.libreoffice_path')}: "
+        f"{private_path(office.path) if office else unavailable}",
+        *document_versions,
         f"{t('diagnostics.line.log')}: {private_path(log_path())}",
         f"{t('diagnostics.line.image_formats')}: {image_formats}",
     ]

@@ -3,7 +3,7 @@ from __future__ import annotations
 import errno
 import unittest
 
-from error_handling import ErrorCode, describe_error
+from error_handling import ErrorCode, UserFacingError, describe_error
 
 
 class ErrorHandlingTests(unittest.TestCase):
@@ -23,6 +23,12 @@ class ErrorHandlingTests(unittest.TestCase):
                 self.assertEqual(description.code, expected)
                 self.assertNotIn(str(error), description.message)
                 self.assertEqual(description.detail, str(error))
+
+    def test_user_facing_error_keeps_the_translated_message(self) -> None:
+        error = UserFacingError("El PDF está cifrado.", ErrorCode.UNSUPPORTED)
+        description = describe_error(error)
+        self.assertEqual(description.code, ErrorCode.UNSUPPORTED)
+        self.assertEqual(description.message, "El PDF está cifrado.")
 
 
 if __name__ == "__main__":

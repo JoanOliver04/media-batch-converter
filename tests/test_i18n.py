@@ -62,7 +62,11 @@ class CatalogueUsageTests(unittest.TestCase):
     DYNAMIC_PREFIXES = ("preset.",)
 
     def sources(self) -> list[Path]:
-        return [*self.PROJECT.glob("*.py"), *(self.PROJECT / "ui").glob("*.py")]
+        return [
+            *self.PROJECT.glob("*.py"),
+            *(self.PROJECT / "ui").glob("*.py"),
+            *(self.PROJECT / "documents").glob("*.py"),
+        ]
 
     def literal_keys(self) -> set[str]:
         keys: set[str] = set()
@@ -190,7 +194,11 @@ class HardcodedTextTests(unittest.TestCase):
 
     def offenders(self) -> list[str]:
         found: list[str] = []
-        sources = [*self.PROJECT.glob("*.py"), *(self.PROJECT / "ui").glob("*.py")]
+        sources = [
+            *self.PROJECT.glob("*.py"),
+            *(self.PROJECT / "ui").glob("*.py"),
+            *(self.PROJECT / "documents").glob("*.py"),
+        ]
         for path in sources:
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
@@ -248,9 +256,19 @@ class HardcodedTextTests(unittest.TestCase):
 
 class PresetCoverageTests(unittest.TestCase):
     def test_every_preset_has_a_name_and_description_in_both_languages(self) -> None:
-        from presets import AUDIO_PRESETS, IMAGE_PRESETS, VIDEO_PRESETS
+        from presets import (
+            AUDIO_PRESETS,
+            DOCUMENT_PRESETS,
+            IMAGE_PRESETS,
+            VIDEO_PRESETS,
+        )
 
-        for preset in (*IMAGE_PRESETS, *AUDIO_PRESETS, *VIDEO_PRESETS):
+        for preset in (
+            *IMAGE_PRESETS,
+            *AUDIO_PRESETS,
+            *VIDEO_PRESETS,
+            *DOCUMENT_PRESETS,
+        ):
             for suffix in ("name", "description"):
                 key = f"preset.{preset.preset_id}.{suffix}"
                 with self.subTest(key=key):

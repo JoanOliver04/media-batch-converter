@@ -6,6 +6,9 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 ### Added
 
+- Files tab for documents and spreadsheets: PDF, DOCX, ODT, RTF, TXT, Markdown, HTML, XLSX, CSV and PPTX, plus LibreOffice-only binary Office when that install is present.
+- A document conversion package with an intermediate model, built-in readers and writers, optional LibreOffice, and security checks for size, type sniffing and zip bombs.
+- File presets for PDF archives, editable DOCX, plain text, Markdown, CSV, HTML and PPTX.
 - `tools/screenshot.py`, which regenerates the README screenshots reproducibly and without touching the developer's settings.
 - Dark instrument-style interface with a single amber accent, monospaced numeric readouts and a themed summary window and diagnostics console, all defined in `ui/theme.py`.
 - Language selector for Spanish and English, applied immediately without restarting and persisted with the local settings.
