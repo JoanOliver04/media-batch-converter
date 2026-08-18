@@ -8,6 +8,7 @@ from pathlib import Path
 
 from i18n import t
 from presets import AudioSettings
+from process_control import text_kwargs
 
 CONTAINER_CODECS = {
     "M4A": {"aac"},
@@ -108,9 +109,9 @@ def encoder_available(ffmpeg: str, codec: str) -> bool:
         completed = subprocess.run(
             [ffmpeg, "-hide_banner", "-encoders"],
             capture_output=True,
-            text=True,
             timeout=10,
             check=False,
+            **text_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return False

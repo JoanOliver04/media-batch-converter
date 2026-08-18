@@ -16,7 +16,7 @@ class ResizeMode(StrEnum):
     PERCENT = "percent"
 
 
-MAX_DIMENSION = 100_000
+MAX_DIMENSION = 16_384
 MAX_UPSCALE_PERCENT = 1_000
 
 

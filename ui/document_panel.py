@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from tkinter import BooleanVar, StringVar, Tk, ttk
 
+from batch_processing import remove_if_empty
 from conversion_results import FileResult, ResultStatus, safe_file_size
 from documents.conversion import convert_document
 from documents.errors import DocumentError
@@ -29,6 +30,7 @@ from output_policy import (
     cleanup_temporary,
     commit_output,
     plan_output,
+    policy_for_name_collision,
 )
 from presets import (
     CUSTOM_PRESET_ID,
@@ -40,14 +42,6 @@ from ui.base import BatchCancelled, ConverterPanel
 from ui.formats import batch_name_collision_keys, desired_output_path
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
-
-
-def _remove_if_empty(directory: Path) -> None:
-    try:
-        if directory.is_dir() and not any(directory.iterdir()):
-            directory.rmdir()
-    except OSError:
-        return
 
 
 @dataclass(frozen=True, slots=True)
@@ -346,18 +340,15 @@ class DocumentPanel(ConverterPanel):
         office = resolve_libreoffice()
         for index, source in enumerate(files, 1):
             if self.cancel_event.is_set():
-                _remove_if_empty(batch.destination)
                 self._finish(batch, results, discovery_errors, cancelled=True)
                 return
             try:
                 results.append(self._convert_file(batch, source, office))
             except BatchCancelled:
-                _remove_if_empty(batch.destination)
                 self._finish(batch, results, discovery_errors, cancelled=True)
                 return
             self.report_progress(index, len(files), source.name)
         self.root.after(0, self.status.set, t("ui.status.finalizing"))
-        _remove_if_empty(batch.destination)
         self._finish(
             batch, results, discovery_errors, cancelled=self.cancel_event.is_set()
         )
@@ -369,6 +360,7 @@ class DocumentPanel(ConverterPanel):
         discovery_errors: list[str],
         cancelled: bool,
     ) -> None:
+        remove_if_empty(batch.destination)
         self.root.after(
             0,
             self.finish_results,
@@ -409,7 +401,9 @@ class DocumentPanel(ConverterPanel):
             )
             desired.parent.mkdir(parents=True, exist_ok=True)
             collision = path_key(desired) in batch.name_collisions
-            plan = plan_output(source, desired, batch.policy)
+            plan = plan_output(
+                source, desired, policy_for_name_collision(batch.policy, collision)
+            )
             if not plan.should_convert:
                 return FileResult(
                     source,

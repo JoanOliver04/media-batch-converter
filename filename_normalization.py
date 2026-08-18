@@ -42,8 +42,21 @@ def normalize_basename(filename: str, max_length: int = MAX_BASENAME_LENGTH) -> 
     return normalized or "asset"
 
 
+def sanitize_stem(stem: str) -> str:
+    """Keep the original stem but dodge Windows devices and trailing junk."""
+    cleaned = stem.rstrip(" .")
+    if not cleaned:
+        return "asset"
+    head = cleaned.split(".")[0]
+    if head.casefold() in WINDOWS_RESERVED_NAMES:
+        return SAFE_PREFIX + cleaned
+    return cleaned
+
+
 def output_filename(source: Path, extension: str, enabled: bool) -> str:
-    basename = normalize_basename(source.name) if enabled else source.stem
+    basename = (
+        normalize_basename(source.name) if enabled else sanitize_stem(source.stem)
+    )
     suffix = extension if extension.startswith(".") else f".{extension}"
     return f"{basename}{suffix}"
 

@@ -188,9 +188,21 @@ class HardcodedTextTests(unittest.TestCase):
 
     @staticmethod
     def _strings(nodes) -> list[ast.Constant]:
-        return [
-            n for n in nodes if isinstance(n, ast.Constant) and isinstance(n.value, str)
-        ]
+        found: list[ast.Constant] = []
+        for node in nodes:
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                found.append(node)
+            elif isinstance(node, ast.JoinedStr):
+                text = "".join(
+                    value.value
+                    for value in node.values
+                    if isinstance(value, ast.Constant) and isinstance(value.value, str)
+                )
+                if text:
+                    literal = ast.Constant(text)
+                    literal.lineno = node.lineno
+                    found.append(literal)
+        return found
 
     def offenders(self) -> list[str]:
         found: list[str] = []

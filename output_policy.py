@@ -103,6 +103,16 @@ def _release_reservation(plan: OutputPlan | None) -> None:
             _RESERVED_PATHS.discard(key)
 
 
+def policy_for_name_collision(
+    policy: OutputPolicy | str, collision: bool
+) -> OutputPolicy:
+    """Keep both sources when several files would share one destination name."""
+    resolved = OutputPolicy(policy)
+    if collision and resolved is not OutputPolicy.UNIQUE:
+        return OutputPolicy.UNIQUE
+    return resolved
+
+
 def plan_output(source: Path, desired: Path, policy: OutputPolicy | str) -> OutputPlan:
     policy = OutputPolicy(policy)
     existing_target = _existing_path(desired)

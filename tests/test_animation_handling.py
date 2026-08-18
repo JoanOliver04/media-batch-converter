@@ -150,7 +150,7 @@ class AnimationHandlingTests(unittest.TestCase):
             with Image.open(frame.output_path) as image:
                 self.assertEqual(image.size, (3, 2))
 
-    def test_existing_frame_folder_is_preserved_during_extraction(self) -> None:
+    def test_existing_frame_folder_is_skipped_by_default(self) -> None:
         existing = self.root / "convertidos_png" / "animated_frames"
         existing.mkdir(parents=True)
         marker = existing / "unrelated.txt"
@@ -162,6 +162,28 @@ class AnimationHandlingTests(unittest.TestCase):
             "PNG",
             85,
             options={"animation_mode": AnimationMode.EXTRACT_FRAMES.value},
+        )
+        result = completion["results"][0]
+        self.assertEqual(result.status.value, "skipped")
+        self.assertEqual(result.output_path, existing)
+        self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
+        self.assertFalse((self.root / "convertidos_png" / "animated_frames_2").exists())
+
+    def test_existing_frame_folder_gets_unique_name_when_requested(self) -> None:
+        existing = self.root / "convertidos_png" / "animated_frames"
+        existing.mkdir(parents=True)
+        marker = existing / "unrelated.txt"
+        marker.write_text("keep", encoding="utf-8")
+        panel, completion = make_panel()
+        panel.convert_batch(
+            self.root,
+            [self.source],
+            "PNG",
+            85,
+            options={
+                "animation_mode": AnimationMode.EXTRACT_FRAMES.value,
+                "output_policy": "unique",
+            },
         )
         result = completion["results"][0]
         self.assertEqual(result.output_path.name, "animated_frames_2")

@@ -44,6 +44,7 @@ class ConverterApp:
         self.container = ttk.Frame(root)
         self.container.pack(fill="both", expand=True)
         self.panels: tuple = ()
+        root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._build()
 
     def _build(self) -> None:
@@ -129,6 +130,18 @@ class ConverterApp:
             logging.getLogger(__name__).warning("language_preference_not_saved")
         # Diferido: no se puede destruir el combo desde su propio callback.
         self.root.after(0, self._rebuild)
+
+    def _on_close(self) -> None:
+        if self.conversion_running():
+            if not messagebox.askyesno(
+                t("ui.dialog.close_busy_title"),
+                t("ui.dialog.close_busy_body"),
+            ):
+                return
+            for panel in self.panels:
+                if getattr(panel, "busy", False):
+                    panel.cancel()
+        self.root.destroy()
 
     def _rebuild(self) -> None:
         for child in self.container.winfo_children():

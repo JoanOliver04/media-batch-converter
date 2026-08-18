@@ -4,6 +4,29 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 ## Unreleased
 
+### Fixed
+
+- Image, audio and video status now follows the selected language during conversion.
+- Same-stem batches (`Photo.png` + `Photo.jpg`) keep both outputs instead of skipping or overwriting one.
+- Windows reserved device names (`CON`, `NUL`, …) are sanitized even when filename normalization is off.
+- Directory junctions are no longer walked during recursive discovery.
+- Closing the window while a batch runs asks for confirmation and cancels the encoder.
+- Cancel now terminates FFmpeg and then kills it if it ignores the first signal; video probes honor cancel.
+- LibreOffice conversions kill the `soffice.bin` tree, keep HTML sidecar files, and prefer the output whose stem matches the source.
+- Embedded decompression bombs are skipped instead of aborting the whole document.
+- Multi-table documents with a title no longer crash when writing XLSX.
+- PPTX pictures are read and written by the built-in engine.
+- Video fill/stretch snap odd sizes to even dimensions required by `yuv420p`.
+- JSON reports use `os.replace`, so they work on FAT/exFAT and some cloud folders.
+- Empty `convertidos_*` trees left by a failed or cancelled batch are removed for every media type.
+
+### Changed
+
+- The video Max MB field is a hard FFmpeg `-fs` cap.
+- Resize targets are limited to 16 384 px per side.
+- Animations with more than 500 frames must use First frame only.
+- Spreadsheet exports neutralize formula-like cells.
+
 ## 0.2.1 - 2026-08-14
 
 ### Fixed

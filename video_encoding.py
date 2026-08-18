@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from i18n import t
+from process_control import text_kwargs
 
 ASPECT_MODES = {"preserve", "fit", "fill", "stretch"}
 CONTAINER_VIDEO_CODECS = {
@@ -116,14 +117,16 @@ def build_video_filter(settings: VideoSettings) -> str:
             )
         )
     elif settings.aspect_mode == "fill":
+        even_width, even_height = _even(width), _even(height)
         filters.extend(
             (
-                f"scale={width}:{height}:force_original_aspect_ratio=increase",
-                f"crop={width}:{height}",
+                f"scale={even_width}:{even_height}:"
+                "force_original_aspect_ratio=increase:force_divisible_by=2",
+                f"crop={even_width}:{even_height}",
             )
         )
     else:
-        filters.append(f"scale={width}:{height}")
+        filters.append(f"scale={_even(width)}:{_even(height)}")
     if settings.fps_cap is not None:
         filters.append(f"fps=fps='min({settings.fps_cap},source_fps)'")
     return ",".join(filters)
@@ -150,6 +153,8 @@ def build_video_args(container: str, settings: VideoSettings) -> list[str]:
         args.extend(("-b:a", "160k" if settings.audio_codec == "libopus" else "192k"))
     if settings.faststart and container.upper() in {"MP4", "MOV"}:
         args.extend(("-movflags", "+faststart"))
+    if settings.max_size_mb is not None:
+        args.extend(("-fs", str(int(settings.max_size_mb) * 1024 * 1024)))
     return args
 
 
@@ -171,6 +176,10 @@ def build_video_command(
     ]
 
 
+def _even(value: int) -> int:
+    return max(2, value - (value % 2))
+
+
 def parse_progress_seconds(line: str) -> float | None:
     match = _OUT_TIME.search(line.strip()) or _TIME.search(line)
     if not match:
@@ -189,16 +198,12 @@ def parse_duration(text: str) -> float | None:
 
 def probe_media(ffmpeg: str, source: Path) -> tuple[float | None, bool]:
     """Return duration and whether an audio stream is present."""
-    flags = (
-        subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
-    )
     completed = subprocess.run(
         [ffmpeg, "-hide_banner", "-i", str(source)],
         capture_output=True,
-        text=True,
         timeout=15,
         check=False,
-        creationflags=flags,
+        **text_kwargs(),
     )
     details = completed.stderr
     return parse_duration(details), bool(re.search(r"Stream #.*Audio:", details))

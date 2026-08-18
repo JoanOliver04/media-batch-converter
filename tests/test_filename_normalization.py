@@ -50,6 +50,17 @@ class FilenameNormalizationTests(unittest.TestCase):
             "My Original.File.webp",
         )
 
+    def test_disabled_mode_still_avoids_windows_devices(self) -> None:
+        self.assertEqual(
+            output_filename(Path("CON.png"), ".webp", False), "asset_CON.webp"
+        )
+        self.assertEqual(
+            output_filename(Path("nul.JPG"), ".png", False), "asset_nul.png"
+        )
+        self.assertEqual(
+            output_filename(Path("lPt9.wav"), ".mp3", False), "asset_lPt9.mp3"
+        )
+
     def test_collisions_are_case_insensitive(self) -> None:
         paths = [
             Path("out/my_file.webp"),

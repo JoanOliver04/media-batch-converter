@@ -14,6 +14,7 @@ MAX_FILE_BYTES = 200 * 1024 * 1024
 MAX_ZIP_MEMBER_BYTES = 200 * 1024 * 1024
 MAX_ZIP_UNCOMPRESSED_BYTES = 500 * 1024 * 1024
 MAX_ZIP_RATIO = 100
+MAX_ZIP_MEMBERS = 10_000
 MAX_PAGES = 2_000
 MAX_BLOCKS = 50_000
 MAX_TABLE_CELLS = 200_000
@@ -78,8 +79,16 @@ def sniff_kind(path: Path) -> DetectedKind:
 def inspect_zip(path: Path) -> None:
     try:
         with zipfile.ZipFile(path) as archive:
+            members = archive.infolist()
+            if len(members) > MAX_ZIP_MEMBERS:
+                raise DocumentError(
+                    t("document.zip_too_many_members", limit=MAX_ZIP_MEMBERS)
+                )
             total = 0
-            for info in archive.infolist():
+            for info in members:
+                name = info.filename.replace("\\", "/")
+                if name.startswith("/") or ".." in Path(name).parts:
+                    raise DocumentError(t("document.zip_unsafe_member"))
                 if info.file_size > MAX_ZIP_MEMBER_BYTES:
                     raise DocumentError(t("document.zip_member_too_large"))
                 if (

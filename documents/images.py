@@ -27,11 +27,11 @@ def normalize_image(data: bytes) -> NormalizedImage | None:
         return None
     try:
         with Image.open(BytesIO(data)) as image:
-            image.load()
             if image.width <= 0 or image.height <= 0:
                 return None
             if image.width * image.height > MAX_IMAGE_PIXELS:
                 return None
+            image.load()
             oriented = ImageOps.exif_transpose(image)
             oriented.thumbnail((MAX_RENDER_WIDTH, MAX_RENDER_HEIGHT))
             has_alpha = oriented.mode in {"RGBA", "LA"} or (
@@ -51,5 +51,5 @@ def normalize_image(data: bytes) -> NormalizedImage | None:
             return NormalizedImage(
                 payload, output_format, converted.width, converted.height
             )
-    except (OSError, UnidentifiedImageError, ValueError):
+    except (OSError, UnidentifiedImageError, ValueError, Image.DecompressionBombError):
         return None

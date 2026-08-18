@@ -15,6 +15,7 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 from openpyxl import Workbook, load_workbook
 from pptx import Presentation
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.util import Inches, Pt
 
 from documents.errors import DocumentError
@@ -67,6 +68,7 @@ def read_docx(path: Path) -> DocumentModel:
             raise DocumentError(t("document.too_many_cells", limit=MAX_TABLE_CELLS))
         if rows:
             blocks.append(Block(BlockKind.TABLE, rows=rows))
+        images += _append_images(document, item._element, blocks, warnings, images)
     return DocumentModel(
         title,
         tuple(blocks),
@@ -124,18 +126,19 @@ def write_xlsx(model: DocumentModel, path: Path) -> None:
     tables = [block for block in model.blocks if block.kind is BlockKind.TABLE]
     if tables:
         workbook.remove(default)
+        used: set[str] = set()
         for index, block in enumerate(tables, 1):
-            title = _sheet_title(model, index)
+            title = _sheet_title(model, index, used)
             sheet = workbook.create_sheet(title)
             for row in block.rows:
-                sheet.append(list(row))
+                sheet.append([_spreadsheet_cell(value) for value in row])
     else:
-        default.title = _sheet_title(model, 1)
+        default.title = _sheet_title(model, 1, set())
         if model.title:
-            default.append([model.title])
+            default.append([_spreadsheet_cell(model.title)])
         for block in model.blocks:
             if block.text:
-                default.append([block.text])
+                default.append([_spreadsheet_cell(block.text)])
         if default.max_row == 1 and default["A1"].value is None:
             default.append([""])
     workbook.save(str(path))
@@ -158,18 +161,22 @@ def write_csv(model: DocumentModel, path: Path) -> None:
     with path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(handle)
         if table:
-            writer.writerows(table)
+            writer.writerows(
+                [_spreadsheet_cell(value) for value in row] for row in table
+            )
         else:
             if model.title:
-                writer.writerow([model.title])
+                writer.writerow([_spreadsheet_cell(model.title)])
             for block in model.blocks:
                 if block.text:
-                    writer.writerow([block.text])
+                    writer.writerow([_spreadsheet_cell(block.text)])
 
 
 def read_pptx(path: Path) -> DocumentModel:
     presentation = Presentation(str(path))
     blocks: list[Block] = []
+    warnings: list[str] = []
+    images = 0
     for index, slide in enumerate(presentation.slides, 1):
         _ensure_block_budget(len(blocks))
         if index > 1:
@@ -185,11 +192,16 @@ def read_pptx(path: Path) -> DocumentModel:
         for text in _slide_texts(slide, skip_title=True):
             _ensure_block_budget(len(blocks))
             blocks.append(Block(BlockKind.PARAGRAPH, text))
+        images += _append_slide_images(slide, blocks, warnings, images)
         notes = _slide_notes(slide)
         if notes:
             blocks.append(Block(BlockKind.PARAGRAPH, notes))
     return DocumentModel(
-        None, tuple(blocks), page_count=len(presentation.slides), source_format="PPTX"
+        None,
+        tuple(blocks),
+        tuple(warnings),
+        page_count=len(presentation.slides),
+        source_format="PPTX",
     )
 
 
@@ -221,6 +233,15 @@ def write_pptx(model: DocumentModel, path: Path) -> None:
         assert current is not None
         if block.kind is BlockKind.TABLE and block.rows:
             _write_pptx_table(current, block.rows)
+            continue
+        if block.kind is BlockKind.IMAGE and block.image_bytes:
+            current.shapes.add_picture(
+                BytesIO(block.image_bytes),
+                Inches(0.7),
+                body_top,
+                width=Inches(5.5),
+            )
+            body_top += Inches(3.2)
             continue
         text = block.text.strip()
         if not text:
@@ -350,12 +371,66 @@ def _workbook_to_model(workbook, source_format: str) -> DocumentModel:
     return DocumentModel(None, tuple(blocks), source_format=source_format)
 
 
-def _sheet_title(model: DocumentModel, index: int) -> str:
+_FORMULA_PREFIXES = frozenset("=+-@\t\r")
+
+
+def _spreadsheet_cell(value: str) -> str:
+    """Neutralize spreadsheet formula injection in exported cells."""
+    text = value if isinstance(value, str) else str(value)
+    if text and text[0] in _FORMULA_PREFIXES:
+        return f"'{text}"
+    return text
+
+
+def _sheet_title(model: DocumentModel, index: int, used: set[str] | None = None) -> str:
     base = (model.title or f"Sheet{index}").strip() or f"Sheet{index}"
     cleaned = "".join(
         character if character not in r"[]:*?/\\" else " " for character in base
     )
-    return cleaned[:31] or f"Sheet{index}"
+    candidate = cleaned[:31] or f"Sheet{index}"
+    if used is None:
+        return candidate
+    suffix = 1
+    unique = candidate
+    while unique.casefold() in used:
+        suffix += 1
+        tail = f"_{suffix}"
+        unique = f"{candidate[: 31 - len(tail)]}{tail}"
+    used.add(unique.casefold())
+    return unique
+
+
+def _append_slide_images(
+    slide, blocks: list[Block], warnings: list[str], already: int
+) -> int:
+    added = 0
+    for shape in slide.shapes:
+        if shape.shape_type != MSO_SHAPE_TYPE.PICTURE:
+            continue
+        if already + added >= MAX_IMAGES:
+            warning = t("document.warning.too_many_images", limit=MAX_IMAGES)
+            if warning not in warnings:
+                warnings.append(warning)
+            break
+        try:
+            blob = shape.image.blob
+        except Exception:
+            blob = b""
+        normalized = normalize_image(blob)
+        if normalized is None:
+            if t("document.warning.image_skipped") not in warnings:
+                warnings.append(t("document.warning.image_skipped"))
+            continue
+        _ensure_block_budget(len(blocks))
+        blocks.append(
+            Block(
+                BlockKind.IMAGE,
+                image_bytes=normalized.data,
+                image_format=normalized.format,
+            )
+        )
+        added += 1
+    return added
 
 
 def _slide_title(slide) -> str:

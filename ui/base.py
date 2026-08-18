@@ -21,6 +21,7 @@ from tkinter import (
 )
 
 from batch_processing import discover_files
+from process_control import stop_process
 from conversion_report import (
     HashCancelled,
     build_report,
@@ -435,9 +436,7 @@ class ConverterPanel(ttk.Frame):
     def cancel(self) -> None:
         self.cancel_event.set()
         self.status.set(t("ui.status.cancelling"))
-        process = self.active_process
-        if process is not None and process.poll() is None:
-            process.terminate()
+        stop_process(self.active_process)
 
     def no_files_found(self, errors: list[str]) -> None:
         self.progress.stop()

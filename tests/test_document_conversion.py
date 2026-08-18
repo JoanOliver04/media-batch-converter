@@ -84,6 +84,23 @@ class SecurityTests(unittest.TestCase):
         with self.assertRaises(DocumentError):
             inspect_source(link)
 
+    def test_rejects_zip_with_too_many_members_or_unsafe_paths(self) -> None:
+        crowded = self.root / "crowded.docx"
+        with zipfile.ZipFile(crowded, "w", compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr("[Content_Types].xml", "<Types/>")
+            archive.writestr("word/document.xml", "<w:document/>")
+            archive.writestr("word/extra.xml", "<w/>")
+        with patch("documents.security.MAX_ZIP_MEMBERS", 2):
+            with self.assertRaises(DocumentError):
+                inspect_source(crowded)
+
+        slip = self.root / "slip.docx"
+        with zipfile.ZipFile(slip, "w", compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr("[Content_Types].xml", "<Types/>")
+            archive.writestr("../evil.xml", "<w/>")
+        with self.assertRaises(DocumentError):
+            inspect_source(slip)
+
     def test_rejects_zip_bombs_before_opening_office_packages(self) -> None:
         bomb = self.root / "bomb.docx"
         with zipfile.ZipFile(bomb, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -224,6 +241,88 @@ class ConversionRoundTripTests(unittest.TestCase):
                     DocumentSettings(engine="libreoffice"),
                     office=office,
                 )
+
+    def test_titled_multi_table_xlsx_uses_unique_sheet_names(self) -> None:
+        from documents.model import Block, BlockKind, DocumentModel
+        from documents.office import write_xlsx
+        from openpyxl import load_workbook
+
+        model = DocumentModel(
+            "Informe",
+            (
+                Block(BlockKind.TABLE, rows=(("a", "1"),)),
+                Block(BlockKind.TABLE, rows=(("b", "2"),)),
+            ),
+        )
+        output = self.root / "tablas.xlsx"
+        write_xlsx(model, output)
+        workbook = load_workbook(output)
+        self.assertEqual(len(workbook.sheetnames), 2)
+        self.assertEqual(len(set(name.casefold() for name in workbook.sheetnames)), 2)
+
+    def test_spreadsheet_cells_neutralize_formulas(self) -> None:
+        from documents.model import Block, BlockKind, DocumentModel
+        from documents.office import write_csv, write_xlsx
+        from openpyxl import load_workbook
+
+        model = DocumentModel(
+            None,
+            (Block(BlockKind.TABLE, rows=(("=CMD|'/C calc'!A0", "ok"),)),),
+        )
+        xlsx = self.root / "safe.xlsx"
+        write_xlsx(model, xlsx)
+        self.assertTrue(str(load_workbook(xlsx).active["A1"].value).startswith("'="))
+        csv_path = self.root / "safe.csv"
+        write_csv(model, csv_path)
+        self.assertIn("'=CMD", csv_path.read_text(encoding="utf-8-sig"))
+
+    def test_embedded_image_over_pixel_limit_is_skipped(self) -> None:
+        from io import BytesIO
+
+        from PIL import Image
+
+        from documents.images import normalize_image
+
+        buffer = BytesIO()
+        Image.new("RGB", (8, 8), "red").save(buffer, format="PNG")
+        with patch("documents.images.MAX_IMAGE_PIXELS", 4):
+            self.assertIsNone(normalize_image(buffer.getvalue()))
+
+    def test_pptx_round_trip_keeps_pictures(self) -> None:
+        from PIL import Image
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        from documents.conversion import read_document
+        from documents.model import BlockKind
+
+        picture = self.root / "slide.png"
+        Image.new("RGB", (32, 32), "blue").save(picture)
+        source = self.root / "deck.pptx"
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        slide.shapes.add_picture(str(picture), Inches(1), Inches(1), width=Inches(1))
+        presentation.save(str(source))
+        model = read_document(source, "PPTX", self.settings)
+        self.assertTrue(any(block.kind is BlockKind.IMAGE for block in model.blocks))
+        dest = self.root / "deck-back.pptx"
+        convert_document(source, dest, "PPTX", self.settings)
+        restored = read_document(dest, "PPTX", self.settings)
+        self.assertTrue(any(block.kind is BlockKind.IMAGE for block in restored.blocks))
+
+    def test_libreoffice_prefers_matching_stem_and_lists_sidecars(self) -> None:
+        from documents.libreoffice import _find_output, _sidecar_paths
+
+        work = self.root / "lo"
+        work.mkdir()
+        (work / "other.html").write_text("<p>x</p>", encoding="utf-8")
+        main = work / "report.html"
+        main.write_text("<p>y</p>", encoding="utf-8")
+        extra = work / "report_html_1.png"
+        extra.write_bytes(b"png")
+        found = _find_output(work, "HTML", "report")
+        self.assertEqual(found, main)
+        self.assertEqual(set(_sidecar_paths(work, found)), {extra, work / "other.html"})
 
     def test_csv_xlsx_round_trip(self) -> None:
         source = self.root / "data.csv"

@@ -223,6 +223,9 @@ def write_report_atomic(path: Path, report: dict[str, Any]) -> None:
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
-        os.link(temporary, path)
+        os.replace(temporary, path)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
     finally:
         temporary.unlink(missing_ok=True)

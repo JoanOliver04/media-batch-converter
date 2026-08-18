@@ -19,9 +19,38 @@ class DiscoveryResult:
     cancelled: bool = False
 
 
+def is_link(path: Path) -> bool:
+    """True for symlinks and Windows directory junctions."""
+    try:
+        return path.is_symlink() or path.is_junction()
+    except OSError:
+        return True
+
+
 def is_output_directory(path: Path) -> bool:
     """Return whether *path* looks like an application output folder."""
     return path.name.casefold().startswith(OUTPUT_PREFIXES)
+
+
+def remove_if_empty(directory: Path) -> None:
+    """Delete *directory* and empty descendants when no files remain."""
+    try:
+        if not directory.is_dir() or is_link(directory):
+            return
+        for current, _dirnames, filenames in os.walk(
+            directory, topdown=False, followlinks=False
+        ):
+            path = Path(current)
+            if filenames or is_link(path):
+                continue
+            try:
+                next(path.iterdir())
+            except StopIteration:
+                path.rmdir()
+            except OSError:
+                continue
+    except OSError:
+        return
 
 
 def discover_files(
@@ -46,7 +75,7 @@ def discover_files(
                 path
                 for path in candidates
                 if path.is_file()
-                and not path.is_symlink()
+                and not is_link(path)
                 and path.suffix.casefold() in normalized_extensions
             ]
         except OSError as error:
@@ -57,6 +86,7 @@ def discover_files(
     def record_error(error: OSError) -> None:
         result.errors.append(f"{error.filename or source}: {error.strerror or error}")
 
+    seen: set[str] = set()
     for current, directory_names, file_names in os.walk(
         source, topdown=True, onerror=record_error, followlinks=False
     ):
@@ -65,12 +95,21 @@ def discover_files(
             break
 
         current_path = Path(current)
+        try:
+            resolved = str(current_path.resolve(strict=False)).casefold()
+        except OSError:
+            directory_names[:] = []
+            continue
+        if resolved in seen:
+            directory_names[:] = []
+            continue
+        seen.add(resolved)
         directory_names[:] = sorted(
             (
                 name
                 for name in directory_names
                 if not is_output_directory(current_path / name)
-                and not (current_path / name).is_symlink()
+                and not is_link(current_path / name)
             ),
             key=str.casefold,
         )
@@ -81,7 +120,7 @@ def discover_files(
             path = current_path / name
             try:
                 if (
-                    not path.is_symlink()
+                    not is_link(path)
                     and path.is_file()
                     and path.suffix.casefold() in normalized_extensions
                 ):

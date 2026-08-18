@@ -7,7 +7,12 @@ from pathlib import Path
 
 from PIL import Image
 
-from image_resize import ResizeConfig, ResizeMode, calculate_resize_dimensions
+from image_resize import (
+    MAX_DIMENSION,
+    ResizeConfig,
+    ResizeMode,
+    calculate_resize_dimensions,
+)
 from ui.image_panel import ImagePanel
 
 
@@ -54,6 +59,13 @@ class DimensionCalculationTests(unittest.TestCase):
         for config in invalid:
             with self.subTest(config=config), self.assertRaises(ValueError):
                 calculate_resize_dimensions(100, 100, config)
+
+    def test_dimension_cap_rejects_huge_targets(self) -> None:
+        self.assertEqual(MAX_DIMENSION, 16_384)
+        with self.assertRaises(ValueError):
+            calculate_resize_dimensions(
+                100, 100, ResizeConfig(ResizeMode.MAX_WIDTH, width=MAX_DIMENSION + 1)
+            )
 
 
 class ResizePipelineTests(unittest.TestCase):

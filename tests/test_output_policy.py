@@ -13,6 +13,7 @@ from output_policy import (
     cleanup_temporary,
     commit_output,
     plan_output,
+    policy_for_name_collision,
     unique_path,
 )
 
@@ -62,6 +63,18 @@ class OutputPolicyTests(unittest.TestCase):
                 commit_output(plan)
         cleanup_temporary(plan)
         self.assertEqual(self.target.read_bytes(), b"old")
+
+    def test_name_collision_promotes_skip_and_overwrite_to_unique(self) -> None:
+        self.assertEqual(
+            policy_for_name_collision(OutputPolicy.SKIP, True), OutputPolicy.UNIQUE
+        )
+        self.assertEqual(
+            policy_for_name_collision(OutputPolicy.OVERWRITE, True),
+            OutputPolicy.UNIQUE,
+        )
+        self.assertEqual(
+            policy_for_name_collision(OutputPolicy.SKIP, False), OutputPolicy.SKIP
+        )
 
     def test_unique_names_and_existing_suffixes(self) -> None:
         self.target.write_bytes(b"one")

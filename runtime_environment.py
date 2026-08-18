@@ -13,6 +13,7 @@ from pathlib import Path
 
 from app_logging import log_path
 from i18n import t
+from process_control import text_kwargs
 from version import APP_NAME, APP_VERSION
 
 INSTALL_COMMAND = "python -m pip install -r requirements.txt"
@@ -77,15 +78,13 @@ def missing_document_dependencies() -> list[str]:
 
 
 def _ffmpeg_version(executable: Path) -> str | None:
-    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     try:
         completed = subprocess.run(
             [str(executable), "-version"],
             capture_output=True,
-            text=True,
             timeout=8,
             check=False,
-            creationflags=flags,
+            **text_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None

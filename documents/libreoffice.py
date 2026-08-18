@@ -18,6 +18,7 @@ from documents.errors import DocumentError
 from documents.formats import DOCUMENT_FORMATS, libreoffice_supports, normalize_format
 from error_handling import ErrorCode
 from i18n import t
+from process_control import stop_process, text_kwargs
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
@@ -86,7 +87,6 @@ def convert_with_libreoffice(
     work = Path(tempfile.mkdtemp(prefix="mbc-lo-"))
     profile = work / "profile"
     profile.mkdir()
-    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     command = [
         str(_conversion_executable(office)),
         "--headless",
@@ -102,22 +102,22 @@ def convert_with_libreoffice(
         str(work),
         str(source.resolve()),
     ]
+    process: subprocess.Popen[str] | None = None
     try:
         process = subprocess.Popen(
             command,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
-            text=True,
-            creationflags=flags,
+            **text_kwargs(),
         )
         try:
             _stdout, stderr = _wait_for_process(process, cancel_event)
         except subprocess.TimeoutExpired as error:
-            process.kill()
+            stop_process(process, tree=True)
             process.communicate()
             raise DocumentError(t("document.libreoffice_timeout")) from error
         except InterruptedError:
-            process.kill()
+            stop_process(process, tree=True)
             process.communicate()
             raise
         if process.returncode:
@@ -130,13 +130,21 @@ def convert_with_libreoffice(
             raise DocumentError(
                 t("document.libreoffice_failed"), ErrorCode.PROCESS_FAILED
             )
-        produced = _find_output(work, dest)
+        produced = _find_output(work, dest, source.stem)
+        extras = _sidecar_paths(work, produced)
         shutil.move(str(produced), str(output))
+        for extra in extras:
+            destination = output.parent / extra.name
+            if destination.exists():
+                continue
+            shutil.move(str(extra), str(destination))
     finally:
+        if process is not None:
+            stop_process(process, tree=True)
         shutil.rmtree(work, ignore_errors=True)
 
 
-def _find_output(directory: Path, dest_format: str) -> Path:
+def _find_output(directory: Path, dest_format: str, source_stem: str = "") -> Path:
     extension = DOCUMENT_FORMATS[dest_format]
     matches = sorted(
         path
@@ -149,7 +157,21 @@ def _find_output(directory: Path, dest_format: str) -> Path:
         raise DocumentError(
             t("document.libreoffice_no_output"), ErrorCode.PROCESS_FAILED
         )
-    return matches[0]
+    preferred = [
+        path
+        for path in matches
+        if source_stem and path.stem.casefold() == source_stem.casefold()
+    ]
+    return (preferred or matches)[0]
+
+
+def _sidecar_paths(directory: Path, produced: Path) -> list[Path]:
+    extras: list[Path] = []
+    for path in directory.rglob("*"):
+        if not path.is_file() or path == produced or "profile" in path.parts:
+            continue
+        extras.append(path)
+    return extras
 
 
 def _wait_for_process(
@@ -218,15 +240,13 @@ def _candidates() -> list[Path]:
 
 
 def _libreoffice_version(executable: Path) -> str | None:
-    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     try:
         completed = subprocess.run(
             [str(executable), "--version"],
             capture_output=True,
-            text=True,
             timeout=3,
             check=False,
-            creationflags=flags,
+            **text_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None

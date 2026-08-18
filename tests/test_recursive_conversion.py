@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import sys
 import tempfile
 import threading
 import unittest
@@ -103,6 +104,23 @@ class DiscoveryTests(unittest.TestCase):
         relative = [path.relative_to(self.root).as_posix() for path in result.files]
         self.assertEqual(relative, ["target/image.png"])
 
+    def test_directory_junctions_are_not_followed(self) -> None:
+        if sys.platform != "win32":
+            self.skipTest("junctions are a Windows feature")
+        target = self.root / "target"
+        target.mkdir()
+        self.touch("target/image.png")
+        link = self.root / "linked"
+        try:
+            import _winapi
+
+            _winapi.CreateJunction(str(target), str(link))
+        except (OSError, AttributeError):
+            self.skipTest("could not create a directory junction")
+        result = discover_files(self.root, {".png"})
+        relative = [path.relative_to(self.root).as_posix() for path in result.files]
+        self.assertEqual(relative, ["target/image.png"])
+
     def test_safe_output_preserves_relative_parent(self) -> None:
         source = self.touch("nested/deep/image.png")
         output = self.root / "convertidos_webp"
@@ -158,6 +176,20 @@ class ImageBatchTests(unittest.TestCase):
             )
             self.assertEqual(failed.warnings[0].code.value, "CORRUPTED_IMAGE")
 
+    def test_failed_batch_removes_empty_output_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            invalid = root / "bad.png"
+            invalid.write_text("not an image", encoding="utf-8")
+            panel = ImagePanel.__new__(ImagePanel)
+            panel.root = ImmediateRoot()
+            panel.status = DummyState()
+            panel.cancel_event = threading.Event()
+            panel.report_progress = lambda *_args: None
+            panel.finish_results = lambda *_args: None
+            panel.convert_batch(root, [invalid], "WebP", 85)
+            self.assertFalse((root / "convertidos_webp").exists())
+
     def test_normalized_batch_collision_uses_unique_policy_and_is_reported(
         self,
     ) -> None:
@@ -201,6 +233,46 @@ class ImageBatchTests(unittest.TestCase):
                 ["converted", "renamed"],
             )
             self.assertTrue(all(result.sha256 for result in completion["results"]))
+            self.assertTrue(
+                all(
+                    (
+                        result.width,
+                        result.height,
+                        result.output_width,
+                        result.output_height,
+                    )
+                    == (4, 4, 4, 4)
+                    for result in completion["results"]
+                )
+            )
+
+    def test_default_skip_policy_keeps_both_same_stem_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            first = root / "Photo.png"
+            second = root / "Photo.jpg"
+            Image.new("RGB", (4, 4), "red").save(first)
+            Image.new("RGB", (4, 4), "blue").save(second)
+
+            panel = ImagePanel.__new__(ImagePanel)
+            panel.root = ImmediateRoot()
+            panel.status = DummyState()
+            panel.cancel_event = threading.Event()
+            panel.report_progress = lambda *_args: None
+            completion: dict[str, object] = {}
+            panel.finish_results = lambda destination, results, errors, *args: (
+                completion.update(results=results)
+            )
+
+            panel.convert_batch(root, [first, second], "WebP", 85)
+
+            output = root / "convertidos_webp"
+            self.assertTrue((output / "Photo.webp").is_file())
+            self.assertTrue((output / "Photo_2.webp").is_file())
+            self.assertEqual(
+                [result.status.value for result in completion["results"]],
+                ["converted", "converted"],
+            )
             self.assertTrue(
                 all(
                     (

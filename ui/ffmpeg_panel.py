@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 import subprocess
-import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from audio_encoding import encoder_available
+from batch_processing import remove_if_empty
 from conversion_results import FileResult, ResultStatus, safe_file_size
 from error_handling import describe_error
 from filename_normalization import path_key
@@ -21,7 +21,9 @@ from output_policy import (
     cleanup_temporary,
     commit_output,
     plan_output,
+    policy_for_name_collision,
 )
+from process_control import stop_process, text_kwargs
 from runtime_environment import resolve_ffmpeg
 from ui.base import BatchCancelled, ConverterPanel
 from ui.formats import batch_name_collision_keys, desired_output_path
@@ -54,19 +56,20 @@ class FFmpegPanel(ConverterPanel):
     """
 
     def run_ffmpeg(self, command: list[str], progress_callback=None) -> None:
-        flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         process = subprocess.Popen(
             command,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
-            text=True,
-            creationflags=flags,
+            **text_kwargs(),
         )
         self.active_process = process
         stderr_lines: list[str] = []
         try:
             if process.stderr is not None:
                 for line in process.stderr:
+                    if self.cancel_event.is_set():
+                        stop_process(process)
+                        break
                     stderr_lines.append(line.rstrip())
                     if len(stderr_lines) > 200:
                         del stderr_lines[:50]
@@ -75,7 +78,11 @@ class FFmpegPanel(ConverterPanel):
                         progress_callback(seconds)
             process.wait()
         finally:
+            if self.cancel_event.is_set():
+                stop_process(process)
             self.active_process = None
+        if self.cancel_event.is_set():
+            raise InterruptedError(t("error.cancelled"))
         if process.returncode:
             detail = [line for line in stderr_lines if line]
             raise RuntimeError(detail[-1] if detail else t("ui.ffmpeg.failed"))
@@ -123,7 +130,12 @@ class FFmpegPanel(ConverterPanel):
             self.root.after(
                 0,
                 self.status.set,
-                f"Convirtiendo {index}/{batch.total}: {source.name}",
+                t(
+                    "ui.status.converting",
+                    index=index,
+                    total=batch.total,
+                    name=source.name,
+                ),
             )
             try:
                 results.append(self._convert_file(batch, source, index))
@@ -171,6 +183,7 @@ class FFmpegPanel(ConverterPanel):
         discovery_errors: list[str],
         cancelled: bool,
     ) -> None:
+        remove_if_empty(batch.destination)
         self.root.after(
             0,
             self.finish_results,
@@ -195,7 +208,9 @@ class FFmpegPanel(ConverterPanel):
             )
             desired.parent.mkdir(parents=True, exist_ok=True)
             collision = path_key(desired) in batch.name_collisions
-            plan = plan_output(source, desired, batch.policy)
+            plan = plan_output(
+                source, desired, policy_for_name_collision(batch.policy, collision)
+            )
             if not plan.should_convert:
                 return FileResult(
                     source,
@@ -247,12 +262,16 @@ class FFmpegPanel(ConverterPanel):
     def _encode(
         self, batch: FFmpegBatch, source: Path, plan: OutputPlan, index: int
     ) -> None:
+        if self.cancel_event.is_set():
+            raise InterruptedError(t("error.cancelled"))
         command = [batch.ffmpeg, "-y", "-i", str(source), "-map_metadata", "0"]
         duration = None
         if batch.audio_only:
             command.append("-vn")
         else:
             duration, _has_audio = probe_media(batch.ffmpeg, source)
+            if self.cancel_event.is_set():
+                raise InterruptedError(t("error.cancelled"))
             command.extend(("-progress", "pipe:2", "-nostats"))
         command.extend((*batch.codec_args, str(plan.temporary)))
 

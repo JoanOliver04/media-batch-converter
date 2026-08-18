@@ -279,7 +279,9 @@ class ConversionReportTests(unittest.TestCase):
 
     def test_report_write_failure_leaves_no_partial_json(self) -> None:
         target = self.output_root / "conversion_report.json"
-        with patch("conversion_report.os.link", side_effect=PermissionError("locked")):
+        with patch(
+            "conversion_report.os.replace", side_effect=PermissionError("locked")
+        ):
             with self.assertRaises(PermissionError):
                 write_report_atomic(target, {"schemaVersion": 1})
         self.assertFalse(target.exists())

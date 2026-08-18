@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,12 +12,16 @@ from tkinter import BooleanVar, StringVar, Tk, ttk
 from PIL import Image, ImageOps, ImageSequence
 
 from animation_handling import (
+    MAX_ANIMATION_FRAMES,
     AnimationMode,
     animation_supported,
+    animation_too_large,
+    existing_directory,
     frame_directory,
     frame_number_width,
     webp_frame_durations,
 )
+from batch_processing import remove_if_empty
 from conversion_results import FileResult, FrameResult, ResultStatus, safe_file_size
 from error_handling import describe_error
 from filename_normalization import path_key
@@ -42,6 +47,7 @@ from output_policy import (
     cleanup_temporary,
     commit_output,
     plan_output,
+    policy_for_name_collision,
 )
 from presets import CUSTOM_PRESET_ID, IMAGE_PRESETS, preset_by_id, preset_matches
 from ui.base import BatchCancelled, ConverterPanel
@@ -724,7 +730,12 @@ class ImagePanel(ConverterPanel):
             self.root.after(
                 0,
                 self.status.set,
-                f"Convirtiendo {index}/{len(files)}: {file.name}",
+                t(
+                    "ui.status.converting",
+                    index=index,
+                    total=len(files),
+                    name=file.name,
+                ),
             )
             try:
                 results.append(self._convert_file(batch, file))
@@ -775,6 +786,7 @@ class ImagePanel(ConverterPanel):
         discovery_errors: list[str],
         cancelled: bool,
     ) -> None:
+        remove_if_empty(batch.destination)
         self.root.after(
             0,
             self.finish_results,
@@ -821,6 +833,19 @@ class ImagePanel(ConverterPanel):
             raise ImageValidationError(list(context.warnings))
 
         metadata = self._read_source_metadata(file)
+        if animation_too_large(metadata.frame_count) and (
+            batch.animation_policy is AnimationMode.PRESERVE
+            or batch.animation_policy is AnimationMode.EXTRACT_FRAMES
+        ):
+            too_many = self.animation_warning(
+                ImageWarningCode.ANIMATION_TOO_MANY_FRAMES,
+                WarningSeverity.BLOCKING_ERROR,
+                t("ui.warning.animation_too_many_frames", limit=MAX_ANIMATION_FRAMES),
+                file,
+                frameCount=metadata.frame_count,
+                limit=MAX_ANIMATION_FRAMES,
+            )
+            raise ImageValidationError([*context.warnings, too_many])
         if (
             metadata.is_animated
             and batch.animation_policy is not AnimationMode.PRESERVE
@@ -854,7 +879,9 @@ class ImagePanel(ConverterPanel):
             )
             raise ImageValidationError([*context.warnings, unsupported])
 
-        context.plan = plan_output(file, desired, batch.policy)
+        context.plan = plan_output(
+            file, desired, policy_for_name_collision(batch.policy, context.collision)
+        )
         if not context.plan.should_convert:
             return FileResult(
                 file,
@@ -912,6 +939,47 @@ class ImagePanel(ConverterPanel):
         metadata: SourceMetadata,
         context: FileContext,
     ) -> FileResult:
+        desired_dir = desired.with_name(f"{desired.stem}_frames")
+        policy = policy_for_name_collision(batch.policy, context.collision)
+        existing = existing_directory(desired_dir)
+        if existing is not None and policy is OutputPolicy.SKIP:
+            return FileResult(
+                file,
+                existing,
+                ResultStatus.SKIPPED,
+                context.original_bytes,
+                error_message=t("ui.skip.exists"),
+                processing_seconds=time.monotonic() - context.started,
+                output_action=OutputAction.SKIP_EXISTS.value,
+                name_collision=context.collision,
+                warnings=context.warnings,
+                animation_mode=batch.animation_policy.value,
+            )
+        if existing is not None and policy is OutputPolicy.SOURCE_NEWER:
+            try:
+                newest = max(
+                    child.stat().st_mtime_ns
+                    for child in existing.rglob("*")
+                    if child.is_file()
+                )
+            except ValueError:
+                newest = existing.stat().st_mtime_ns
+            if file.stat().st_mtime_ns <= newest:
+                return FileResult(
+                    file,
+                    existing,
+                    ResultStatus.SKIPPED,
+                    context.original_bytes,
+                    error_message=t("ui.skip.up_to_date"),
+                    processing_seconds=time.monotonic() - context.started,
+                    output_action=OutputAction.SKIP_UP_TO_DATE.value,
+                    name_collision=context.collision,
+                    warnings=context.warnings,
+                    animation_mode=batch.animation_policy.value,
+                )
+        if existing is not None and policy is OutputPolicy.OVERWRITE:
+            shutil.rmtree(existing)
+
         with Image.open(file) as animation:
             frame_root, frames, checksum_warnings, resolved_mode = (
                 self.extract_animation_frames(
