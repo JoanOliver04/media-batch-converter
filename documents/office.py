@@ -177,6 +177,7 @@ def read_pptx(path: Path) -> DocumentModel:
     blocks: list[Block] = []
     warnings: list[str] = []
     images = 0
+    table_cells = 0
     for index, slide in enumerate(presentation.slides, 1):
         _ensure_block_budget(len(blocks))
         if index > 1:
@@ -192,6 +193,16 @@ def read_pptx(path: Path) -> DocumentModel:
         for text in _slide_texts(slide, skip_title=True):
             _ensure_block_budget(len(blocks))
             blocks.append(Block(BlockKind.PARAGRAPH, text))
+        for shape in slide.shapes:
+            if not shape.has_table:
+                continue
+            table = shape.table
+            table_cells += len(table.rows) * len(table.columns)
+            if table_cells > MAX_TABLE_CELLS:
+                raise DocumentError(t("document.too_many_cells", limit=MAX_TABLE_CELLS))
+            rows = tuple(tuple(cell.text for cell in row.cells) for row in table.rows)
+            _ensure_block_budget(len(blocks))
+            blocks.append(Block(BlockKind.TABLE, rows=rows))
         images += _append_slide_images(slide, blocks, warnings, images)
         notes = _slide_notes(slide)
         if notes:
@@ -208,9 +219,11 @@ def read_pptx(path: Path) -> DocumentModel:
 def write_pptx(model: DocumentModel, path: Path) -> None:
     presentation = Presentation()
     blank = presentation.slide_layouts[6]
-    title_layout = presentation.slide_layouts[0]
+    title_layout = presentation.slide_layouts[5]
     current = None
     body_top = Inches(1.6)
+    body_bottom = presentation.slide_height - Inches(0.35)
+    row_height = Inches(0.45)
 
     def new_slide(heading: str) -> None:
         nonlocal current, body_top
@@ -232,9 +245,20 @@ def write_pptx(model: DocumentModel, path: Path) -> None:
             new_slide(model.title or "")
         assert current is not None
         if block.kind is BlockKind.TABLE and block.rows:
-            _write_pptx_table(current, block.rows)
+            remaining = block.rows
+            while remaining:
+                rows_on_slide = (body_bottom - body_top) // row_height
+                if rows_on_slide < 1:
+                    new_slide("")
+                    rows_on_slide = (body_bottom - body_top) // row_height
+                rows, remaining = remaining[:rows_on_slide], remaining[rows_on_slide:]
+                height = row_height * len(rows)
+                _write_pptx_table(current, rows, body_top, height)
+                body_top += height + Inches(0.15)
             continue
         if block.kind is BlockKind.IMAGE and block.image_bytes:
+            if body_top + Inches(3.2) > body_bottom:
+                new_slide("")
             current.shapes.add_picture(
                 BytesIO(block.image_bytes),
                 Inches(0.7),
@@ -246,6 +270,8 @@ def write_pptx(model: DocumentModel, path: Path) -> None:
         text = block.text.strip()
         if not text:
             continue
+        if body_top + Inches(0.6) > body_bottom:
+            new_slide("")
         box = current.shapes.add_textbox(
             Inches(0.7), body_top, Inches(8.6), Inches(0.6)
         )
@@ -253,7 +279,7 @@ def write_pptx(model: DocumentModel, path: Path) -> None:
         frame.word_wrap = True
         frame.text = f"• {text}" if block.kind is BlockKind.LIST_ITEM else text
         frame.paragraphs[0].font.size = Pt(18)
-        body_top += Inches(0.45)
+        body_top += Inches(0.65)
     if not presentation.slides:
         presentation.slides.add_slide(blank)
     presentation.save(str(path))
@@ -459,10 +485,12 @@ def _slide_notes(slide) -> str:
     return slide.notes_slide.notes_text_frame.text.strip()
 
 
-def _write_pptx_table(slide, rows: tuple[tuple[str, ...], ...]) -> None:
+def _write_pptx_table(
+    slide, rows: tuple[tuple[str, ...], ...], top: int, height: int
+) -> None:
     width = max(len(row) for row in rows)
     table_shape = slide.shapes.add_table(
-        len(rows), width, Inches(0.6), Inches(1.8), Inches(8.8), Inches(0.4 * len(rows))
+        len(rows), width, Inches(0.6), top, Inches(8.8), height
     )
     table = table_shape.table
     for row_index, row in enumerate(rows):

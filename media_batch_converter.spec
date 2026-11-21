@@ -6,15 +6,27 @@ import imageio_ffmpeg
 from PyInstaller.utils.hooks import collect_submodules
 
 project = Path(SPECPATH)
-configured_ffmpeg = os.environ.get("MEDIA_BATCH_BUILD_FFMPEG")
-ffmpeg = Path(configured_ffmpeg or imageio_ffmpeg.get_ffmpeg_exe()).resolve(strict=True)
-ffmpeg_license = ffmpeg.with_name("LICENSE")
+binaries = []
+datas = [(str(project / "assets" / "app-icon.png"), "assets")]
+exclude_ffmpeg = os.environ.get("MEDIA_BATCH_BUILD_WITHOUT_FFMPEG") == "1"
+excludes = ["pytest", "unittest", "tests"]
+if exclude_ffmpeg:
+    excludes.append("imageio_ffmpeg")
+if not exclude_ffmpeg:
+    configured_ffmpeg = os.environ.get("MEDIA_BATCH_BUILD_FFMPEG")
+    ffmpeg = Path(configured_ffmpeg or imageio_ffmpeg.get_ffmpeg_exe()).resolve(
+        strict=True
+    )
+    binaries.append((str(ffmpeg), "ffmpeg"))
+    ffmpeg_license = ffmpeg.with_name("LICENSE")
+    if ffmpeg_license.is_file():
+        datas.append((str(ffmpeg_license), "ffmpeg"))
 
 a = Analysis(
     [str(project / "run_app.py")],
     pathex=[str(project)],
-    binaries=[(str(ffmpeg), "ffmpeg")],
-    datas=[(str(ffmpeg_license), "ffmpeg")] if ffmpeg_license.is_file() else [],
+    binaries=binaries,
+    datas=datas,
     hiddenimports=collect_submodules("PIL")
     + collect_submodules("locales")
     + collect_submodules("ui")
@@ -27,7 +39,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["pytest", "unittest", "tests"],
+    excludes=excludes,
     noarchive=False,
     optimize=1,
 )
@@ -44,6 +56,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
+    icon=str(project / "assets" / "app-icon.ico"),
     version=str(project / "version_info.txt"),
 )
 

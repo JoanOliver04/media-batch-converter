@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import filecmp
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from tkinter import BooleanVar, StringVar, Tk, ttk
 
+from batch_processing import is_link
 from conversion_results import FileResult, ResultStatus, safe_file_size
 from documents.conversion import convert_document
 from documents.errors import DocumentError
@@ -18,6 +21,7 @@ from documents.formats import (
     format_from_path,
 )
 from documents.libreoffice import resolve_libreoffice
+from documents.optimization import optimize_document
 from documents.settings import DocumentSettings, validate_document_settings
 from error_handling import describe_error
 from filename_normalization import path_key
@@ -30,6 +34,7 @@ from output_policy import (
     cleanup_temporary,
     commit_output,
     policy_for_name_collision,
+    publish_new_file,
 )
 from presets import (
     CUSTOM_PRESET_ID,
@@ -54,6 +59,7 @@ class DocumentBatch:
     policy: OutputPolicy
     normalize: bool
     generate_report: bool
+    only_smaller: bool
     name_collisions: set[str]
 
 
@@ -334,6 +340,7 @@ class DocumentPanel(ConverterPanel):
             policy=OutputPolicy(options.get("output_policy", OutputPolicy.SKIP)),
             normalize=normalize,
             generate_report=bool(options.get("generate_report", False)),
+            only_smaller=bool(options.get("only_smaller", False)),
             name_collisions=batch_name_collision_keys(
                 destination, source_root, files, extension, normalize
             ),
@@ -423,32 +430,45 @@ class DocumentPanel(ConverterPanel):
                 )
             if plan.temporary is None:
                 raise DocumentError(t("error.unexpected"))
-            outcome = convert_document(
-                source,
-                plan.temporary,
-                batch.output_format,
-                batch.settings,
-                self.cancel_event,
-                office,
-            )
-            if self.cancel_event.is_set():
-                raise BatchCancelled()
-            commit_output(plan)
+            with TemporaryDirectory(
+                prefix=".document-", dir=plan.target.parent
+            ) as stage:
+                staged = Path(stage) / plan.target.name
+                outcome = convert_document(
+                    source,
+                    staged,
+                    batch.output_format,
+                    batch.settings,
+                    self.cancel_event,
+                    office,
+                )
+                optimize_document(staged, batch.output_format, self.cancel_event)
+                if self.cancel_event.is_set():
+                    raise BatchCancelled()
+                artifacts = tuple(staged.parent.iterdir())
+                if any(is_link(path) or not path.is_file() for path in artifacts):
+                    raise DocumentError(t("document.unsafe_companion"))
+                result = FileResult(
+                    source,
+                    plan.target,
+                    ResultStatus.CONVERTED,
+                    original_bytes,
+                    sum(path.stat().st_size for path in artifacts),
+                    processing_seconds=time.monotonic() - started,
+                    encoder_mode=outcome.engine,
+                    output_action=plan.action.value,
+                    name_collision=collision,
+                    warnings=outcome.warnings,
+                ).require_savings(batch.only_smaller)
+                if result.status is ResultStatus.SKIPPED:
+                    cleanup_temporary(plan)
+                    return result
+                self._publish_document(plan, staged, artifacts)
             checksum, checksum_warnings = self.checksum_for_report(
                 plan.target, batch.generate_report
             )
-            return FileResult(
-                source,
-                plan.target,
-                ResultStatus.CONVERTED,
-                original_bytes,
-                safe_file_size(plan.target),
-                processing_seconds=time.monotonic() - started,
-                encoder_mode=outcome.engine,
-                output_action=plan.action.value,
-                name_collision=collision,
-                warnings=(*outcome.warnings, *checksum_warnings),
-                sha256=checksum,
+            return replace(
+                result, warnings=result.warnings + checksum_warnings, sha256=checksum
             )
         except Exception as error:
             logging.getLogger(__name__).exception("conversion_failed source=%s", source)
@@ -464,6 +484,36 @@ class DocumentPanel(ConverterPanel):
                 processing_seconds=time.monotonic() - started,
                 name_collision=collision,
             )
+
+    def _publish_document(
+        self, plan: OutputPlan, staged: Path, artifacts: tuple[Path, ...]
+    ) -> None:
+        published: list[Path] = []
+        try:
+            for artifact in artifacts:
+                if artifact == staged:
+                    continue
+                target = plan.target.parent / artifact.name
+                if is_link(target):
+                    raise DocumentError(t("document.unsafe_companion"))
+                if target.exists():
+                    if not target.is_file() or not filecmp.cmp(
+                        artifact, target, shallow=False
+                    ):
+                        raise DocumentError(
+                            t("document.companion_conflict", name=target.name)
+                        )
+                    continue
+                publish_new_file(artifact, target)
+                published.append(target)
+            if self.cancel_event.is_set():
+                raise BatchCancelled()
+            staged.replace(plan.temporary)
+            commit_output(plan)
+        except Exception:
+            for path in published:
+                path.unlink(missing_ok=True)
+            raise
 
     @staticmethod
     def _display_for(mapping: dict[str, str], code: str) -> str:

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 
 from i18n import t
 from image_validation import ImageWarning
+from output_policy import OutputAction
 
 
 class ResultStatus(StrEnum):
@@ -48,6 +49,21 @@ class FileResult:
     animation_loop: int | None = None
     frame_durations_ms: tuple[int, ...] = field(default_factory=tuple)
     frames: tuple[FrameResult, ...] = field(default_factory=tuple)
+    attempted_output_bytes: int | None = None
+
+    def require_savings(self, enabled: bool) -> FileResult:
+        if not enabled or self.output_bytes < self.original_bytes:
+            return self
+        return replace(
+            self,
+            output_path=None,
+            output_bytes=0,
+            status=ResultStatus.SKIPPED,
+            error_message=t("ui.skip.no_savings"),
+            output_action=OutputAction.SKIP_NO_SAVINGS.value,
+            attempted_output_bytes=self.output_bytes,
+            frames=(),
+        )
 
     @property
     def bytes_saved(self) -> int:
@@ -207,6 +223,7 @@ def summary_text(summary: BatchSummary) -> str:
             f"{t('summary.skipped')}: {summary.skipped}",
             f"{t('summary.skipped_existing')}: {summary.skipped_existing}",
             f"{t('summary.skipped_up_to_date')}: {summary.skipped_up_to_date}",
+            f"{t('summary.skipped_no_savings')}: {summary.action_count(OutputAction.SKIP_NO_SAVINGS)}",
             f"{t('summary.overwritten')}: {summary.overwritten}",
             f"{t('summary.renamed')}: {summary.renamed}",
             f"{t('summary.name_collisions')}: {summary.name_collisions}",

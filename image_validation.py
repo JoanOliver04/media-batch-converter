@@ -17,7 +17,7 @@ from i18n import t
 
 EXTREME_DIMENSION = 16_000
 MEMORY_PRESSURE_PIXELS = 80_000_000
-IMAGE_INPUT_FORMATS = ("BMP", "GIF", "ICO", "JPEG", "PNG", "TIFF", "WEBP")
+IMAGE_INPUT_FORMATS = ("AVIF", "BMP", "GIF", "ICO", "JPEG", "PNG", "TIFF", "WEBP")
 
 
 def open_supported_image(source: Path) -> Image.Image:
@@ -164,6 +164,7 @@ def validate_properties(
         "JPEG": {".jpg", ".jpeg"},
         "PNG": {".png"},
         "WEBP": {".webp"},
+        "AVIF": {".avif"},
         "ICO": {".ico"},
         "GIF": {".gif"},
         "BMP": {".bmp"},

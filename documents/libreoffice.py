@@ -15,7 +15,13 @@ from pathlib import Path
 from threading import Event
 
 from documents.errors import DocumentError
-from documents.formats import DOCUMENT_FORMATS, libreoffice_supports, normalize_format
+from documents.formats import (
+    CALC_INPUTS,
+    DOCUMENT_FORMATS,
+    format_from_path,
+    libreoffice_supports,
+    normalize_format,
+)
 from error_handling import ErrorCode
 from i18n import t
 from process_control import stop_process, text_kwargs
@@ -28,10 +34,10 @@ LIBREOFFICE_FILTERS = {
     "DOCX": "docx",
     "ODT": "odt",
     "RTF": "rtf",
-    "TXT": "txt:Text",
+    "TXT": "txt:Text (encoded):UTF8",
     "HTML": "html",
     "XLSX": "xlsx",
-    "CSV": "csv",
+    "CSV": "csv:Text - txt - csv (StarCalc):44,34,76,1",
     "PPTX": "pptx",
 }
 
@@ -73,16 +79,26 @@ def convert_with_libreoffice(
     if office is None:
         raise DocumentError(t("document.libreoffice_unavailable"), ErrorCode.NOT_FOUND)
     dest = normalize_format(dest_format)
-    source_format = source.suffix
-    if not libreoffice_supports(_guess_from_suffix(source), dest):
+    source_format = format_from_path(source)
+    if not source_format or not libreoffice_supports(source_format, dest):
         raise DocumentError(
             t(
                 "document.pair_unsupported",
-                source=source_format.lstrip(".").upper() or "?",
+                source=source_format or source.suffix.lstrip(".").upper() or "?",
                 dest=dest,
             )
         )
+    # Writer opens HTML as a web document. ODT converts it to a regular Writer
+    # document so the standard Word and Rich Text export filters are available.
+    if source_format == "HTML" and dest in {"DOCX", "RTF"}:
+        with tempfile.TemporaryDirectory(prefix="mbc-lo-writer-") as folder:
+            intermediate = Path(folder) / source.with_suffix(".odt").name
+            convert_with_libreoffice(source, intermediate, "ODT", cancel_event, office)
+            convert_with_libreoffice(intermediate, output, dest, cancel_event, office)
+        return
     target = LIBREOFFICE_FILTERS[dest]
+    if dest == "TXT" and source_format in CALC_INPUTS:
+        target = "txt:Text - txt - csv (StarCalc):9,34,76,1"
     output.parent.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="mbc-lo-"))
     profile = work / "profile"
@@ -189,12 +205,6 @@ def _wait_for_process(
         except subprocess.TimeoutExpired:
             continue
         return stdout or "", stderr or ""
-
-
-def _guess_from_suffix(path: Path) -> str:
-    from documents.formats import format_from_path
-
-    return format_from_path(path) or path.suffix.lstrip(".").upper()
 
 
 def _candidates() -> list[Path]:

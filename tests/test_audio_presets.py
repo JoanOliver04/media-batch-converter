@@ -22,6 +22,10 @@ EXPECTED = {
     "runtime_sound_effect": ("M4A", "aac", 48_000, 1, 128, "aac_low"),
     "master_wav": ("WAV", "pcm_s24le", 48_000, None, None, None),
     "voice_dialogue": ("M4A", "aac", 48_000, 1, 96, "aac_low"),
+    "game_music_aac": ("M4A", "aac", None, None, 144, "aac_low"),
+    "game_music_opus": ("Opus", "libopus", None, None, 112, None),
+    "game_music_vorbis": ("OGG", "libvorbis", None, None, None, None),
+    "game_audio_lossless": ("FLAC", "flac", None, None, None, None),
 }
 
 

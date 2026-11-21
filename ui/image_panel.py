@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from tkinter import BooleanVar, StringVar, Tk, ttk
@@ -27,6 +27,12 @@ from conversion_results import FileResult, FrameResult, ResultStatus, safe_file_
 from error_handling import describe_error
 from filename_normalization import path_key
 from i18n import t
+from image_optimization import (
+    MAX_CANDIDATE_PIXELS,
+    compact_image,
+    exact_palette,
+    keep_smaller_candidate,
+)
 from image_resize import (
     ResizeConfig,
     ResizeMode,
@@ -86,6 +92,7 @@ class ImageBatch:
     policy: OutputPolicy
     normalize: bool
     generate_report: bool
+    only_smaller: bool
     animation_policy: AnimationMode
     name_collisions: set[str]
 
@@ -487,7 +494,7 @@ class ImagePanel(ConverterPanel):
             self.webp_frame.grid_remove()
         if hasattr(self, "animation_frame"):
             self.update_animation_controls()
-        quality_applies = self.output_format.get() == "JPG" or (
+        quality_applies = self.output_format.get() in {"JPG", "AVIF"} or (
             visible and self.webp_mode.get() != WebPMode.LOSSLESS.value
         )
         self.show_quality_controls(quality_applies)
@@ -541,7 +548,7 @@ class ImagePanel(ConverterPanel):
         source: Path | str = "image.png",
         requested_webp_mode: WebPMode | str = WebPMode.AUTOMATIC,
     ) -> tuple[Image.Image, dict[str, object], WebPMode | None]:
-        converted = image.convert("RGBA")
+        converted = compact_image(image, image_format)
         save_options: dict[str, object] = {}
         resolved_mode: WebPMode | None = None
         if image_format == "JPEG":
@@ -554,6 +561,8 @@ class ImagePanel(ConverterPanel):
             save_options = webp_save_options(resolved_mode, quality)
         elif image_format == "PNG":
             save_options = {"optimize": True, "compress_level": 9}
+        elif image_format == "AVIF":
+            save_options = {"quality": quality, "speed": 4, "subsampling": "4:4:4"}
         elif image_format == "ICO":
             max_icon_size = min(converted.size)
             sizes = [
@@ -602,6 +611,45 @@ class ImagePanel(ConverterPanel):
                 resized, image_format, quality, source, requested_webp_mode
             )
             converted.save(output, format=image_format, **save_options)
+            if (
+                image_format == "PNG"
+                and (palette := exact_palette(converted)) is not None
+            ):
+                indexed, bits = palette
+                keep_smaller_candidate(
+                    output,
+                    lambda path: indexed.save(
+                        path, format="PNG", bits=bits, **save_options
+                    ),
+                )
+            elif (
+                image_format == "JPEG"
+                and converted.width * converted.height <= MAX_CANDIDATE_PIXELS
+            ):
+                options = {**save_options, "progressive": False}
+                keep_smaller_candidate(
+                    output, lambda path: converted.save(path, format="JPEG", **options)
+                )
+            elif (
+                image_format == "TIFF"
+                and converted.mode in {"L", "RGB", "RGBA"}
+                and converted.width * converted.height <= MAX_CANDIDATE_PIXELS
+            ):
+                options = {**save_options, "tiffinfo": {317: 2}}
+                keep_smaller_candidate(
+                    output, lambda path: converted.save(path, format="TIFF", **options)
+                )
+            elif (
+                image_format == "WEBP"
+                and WebPMode(requested_webp_mode) is WebPMode.AUTOMATIC
+                and resolved_mode is WebPMode.LOSSY
+                and converted.width * converted.height <= MAX_CANDIDATE_PIXELS
+            ):
+                options = webp_save_options(WebPMode.LOSSLESS, quality)
+                if keep_smaller_candidate(
+                    output, lambda path: converted.save(path, format="WEBP", **options)
+                ):
+                    resolved_mode = WebPMode.LOSSLESS
             return resolved_mode
 
         resolved_mode: WebPMode | None = None
@@ -634,6 +682,8 @@ class ImagePanel(ConverterPanel):
             ]
         if image_format == "WEBP":
             save_options.update(webp_save_options(resolved_mode, quality))
+        elif image_format == "AVIF":
+            save_options.update(quality=quality, speed=4, subsampling="4:4:4")
         else:
             save_options["optimize"] = True
         frames[0].save(output, format=image_format, **save_options)
@@ -762,6 +812,7 @@ class ImagePanel(ConverterPanel):
             policy=OutputPolicy(options.get("output_policy", OutputPolicy.SKIP)),
             normalize=normalize,
             generate_report=bool(options.get("generate_report", False)),
+            only_smaller=bool(options.get("only_smaller", False)),
             animation_policy=AnimationMode(
                 options.get("animation_mode", AnimationMode.PRESERVE)
             ),
@@ -1013,6 +1064,19 @@ class ImagePanel(ConverterPanel):
                 )
             if self.cancel_event.is_set():
                 raise BatchCancelled()
+            output_bytes = sum(frame.output_bytes for frame in frames)
+            if batch.only_smaller and output_bytes >= context.original_bytes:
+                return FileResult(
+                    file,
+                    None,
+                    ResultStatus.CONVERTED,
+                    context.original_bytes,
+                    output_bytes,
+                    processing_seconds=time.monotonic() - context.started,
+                    name_collision=context.collision,
+                    warnings=context.warnings,
+                    animation_mode=batch.animation_policy.value,
+                ).require_savings(True)
             publish_frame_directory(staged, frame_root, overwrite)
         frames = tuple(
             FrameResult(
@@ -1023,7 +1087,6 @@ class ImagePanel(ConverterPanel):
             )
             for frame in frames
         )
-        output_bytes = sum(frame.output_bytes for frame in frames)
         output_width, output_height = calculate_resize_dimensions(
             metadata.width, metadata.height, batch.resize_config
         )
@@ -1114,22 +1177,14 @@ class ImagePanel(ConverterPanel):
             )
         if self.cancel_event.is_set():
             raise BatchCancelled()
-        commit_output(context.plan)
-        output_bytes = safe_file_size(context.plan.target)
+        output_bytes = context.plan.temporary.stat().st_size
         size_warnings = tuple(
             output_size_warnings(file, context.original_bytes, output_bytes)
         )
-        checksum, checksum_warnings = self.checksum_for_report(
-            context.plan.target, batch.generate_report
-        )
-        if resolved_mode is not None:
-            self.selected_modes[file] = resolved_mode
-        reported_quality = (
-            None
-            if batch.image_format == "WEBP" and resolved_mode is WebPMode.LOSSLESS
-            else batch.quality
-        )
-        return FileResult(
+        reported_quality = None
+        if batch.image_format in {"JPEG", "AVIF"} or resolved_mode is WebPMode.LOSSY:
+            reported_quality = batch.quality
+        result = FileResult(
             file,
             context.plan.target,
             ResultStatus.CONVERTED,
@@ -1139,17 +1194,28 @@ class ImagePanel(ConverterPanel):
             encoder_mode=resolved_mode.value if resolved_mode else None,
             output_action=context.plan.action.value,
             name_collision=context.collision,
-            warnings=context.warnings + size_warnings + checksum_warnings,
+            warnings=context.warnings + size_warnings,
             width=source_width,
             height=source_height,
             output_width=output_width,
             output_height=output_height,
             quality=reported_quality,
-            sha256=checksum,
             animation_mode=(
                 batch.animation_policy.value if metadata.is_animated else None
             ),
             frame_count=metadata.frame_count,
             animation_loop=metadata.animation_loop,
             frame_durations_ms=metadata.frame_durations,
+        ).require_savings(batch.only_smaller)
+        if result.status is ResultStatus.SKIPPED:
+            cleanup_temporary(context.plan)
+            return result
+        commit_output(context.plan)
+        checksum, checksum_warnings = self.checksum_for_report(
+            context.plan.target, batch.generate_report
+        )
+        if resolved_mode is not None:
+            self.selected_modes[file] = resolved_mode
+        return replace(
+            result, sha256=checksum, warnings=result.warnings + checksum_warnings
         )

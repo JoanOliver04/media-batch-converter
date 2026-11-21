@@ -4,12 +4,17 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-21
+
 ### Added
 
 - Multi-file selection, a configurable output parent and a shortcut to the output folder in the summary.
 - Responsive conversion controls with a persistent action bar, progress within both audio and video files, and keyboard focus that scrolls into view.
 - Configurable FFmpeg executable for source and packaged runs.
 - Latest batch results can be reopened on each tab, with paginated file details, status filters and safe retries for failed files.
+- Save only if smaller works across the four conversion tabs, including animation exports and document companions.
+- Presets for AVIF backgrounds, AAC/Opus/Vorbis music, lossless FLAC and HEVC cinematics.
+- The Windows executable and app window have a dedicated icon.
 
 ### Fixed
 
@@ -27,15 +32,21 @@ All notable changes are documented here. This project follows [Semantic Versioni
 - Empty input no longer selects the working directory. Language switching preserves the active source and destination.
 - New outputs and reports preserve files written in parallel. Frame exports finish staging before replacing an earlier export.
 - Cleanup only removes empty directories created during the batch.
+- Raw MPEG-4 `.m4v` files now use an allowed FFmpeg demuxer.
+- The built-in PPTX reader keeps slide tables, and the writer splits long tables across slides.
+- The LibreOffice converter checks which application can export each format pair and uses UTF-8 for text and CSV exports.
+- LibreOffice converts HTML to DOCX and RTF through an intermediate ODT file.
 
 ### Changed
 
 - The video Max MiB field is verified against the actual encoded size before publishing.
 - Audio and video progress use one FFmpeg invocation per file, and batch output names are indexed per directory.
 - Upgraded Pillow, pypdf and ReportLab, restricted decoding to supported formats, and capped memory for preserved animations.
+- The converter compares eligible image encodings at the requested quality and attempts lossless PDF and Office package recompression. MP3 and Vorbis use quality-based VBR when the bitrate field is blank.
 - Resize targets are limited to 16 384 px per side.
 - Animations with more than 500 frames must use First frame only.
-- Spreadsheet exports neutralize formula-like cells.
+- The built-in spreadsheet writers neutralize formula-like text they write.
+- The public Windows ZIP uses a separately installed FFmpeg executable for audio and video.
 
 ## 0.2.1 - 2026-08-14
 

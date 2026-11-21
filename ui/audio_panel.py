@@ -137,6 +137,8 @@ class AudioPanel(FFmpegPanel):
                 self.audio_preset_display.set(preset.display_name)
                 self.audio_preset_description.set(preset.description)
                 self.output_format.set(preset.output_format)
+                if preset.quality is not None:
+                    self.quality.set(preset.quality)
                 self.audio_sample_rate.set(
                     str(settings.sample_rate)
                     if settings.sample_rate

@@ -9,7 +9,13 @@ from i18n import t
 from presets import CUSTOM_PRESET_ID, VIDEO_PRESETS, preset_by_id
 from ui.ffmpeg_panel import FFmpegPanel
 from ui.formats import VIDEO_EXTENSIONS, VIDEO_FORMATS
-from video_encoding import VideoSettings, build_video_args, validate_video_settings
+from video_encoding import (
+    CONTAINER_AUDIO_CODECS,
+    CONTAINER_VIDEO_CODECS,
+    VideoSettings,
+    build_video_args,
+    validate_video_settings,
+)
 
 
 class VideoPanel(FFmpegPanel):
@@ -108,14 +114,14 @@ class VideoPanel(FFmpegPanel):
         self.video_codec_selector = ttk.Combobox(
             form,
             textvariable=self.video_codec,
-            values=("libx264", "libvpx-vp9", "mpeg4"),
+            values=tuple(sorted(CONTAINER_VIDEO_CODECS["MP4"])),
             state="readonly",
             width=12,
         )
         self.video_audio_selector = ttk.Combobox(
             form,
             textvariable=self.video_audio_codec,
-            values=("aac", "libopus", "libmp3lame"),
+            values=tuple(sorted(CONTAINER_AUDIO_CODECS["MP4"])),
             state="readonly",
             width=12,
         )
@@ -171,9 +177,16 @@ class VideoPanel(FFmpegPanel):
         self.apply_video_preset_id(self.settings_store.load_last_video_preset())
 
     def video_format_changed(self, *_args) -> None:
+        output_format = self.output_format.get()
+        self.video_codec_selector.configure(
+            values=tuple(sorted(CONTAINER_VIDEO_CODECS.get(output_format.upper(), ())))
+        )
+        self.video_audio_selector.configure(
+            values=tuple(sorted(CONTAINER_AUDIO_CODECS.get(output_format.upper(), ())))
+        )
         if self._applying_video_preset:
             return
-        codecs = self.CODECS.get(self.output_format.get())
+        codecs = self.CODECS.get(output_format)
         if codecs:
             self._applying_video_preset = True
             try:

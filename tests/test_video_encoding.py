@@ -25,6 +25,7 @@ EXPECTED = {
     "vertical_social": ("MP4", "libx264", "aac", 1080, 1920, "fit", 30, 22),
     "horizontal_trailer": ("MP4", "libx264", "aac", 1920, 1080, "preserve", 30, 20),
     "webm_vp9": ("WebM", "libvpx-vp9", "libopus", None, None, "preserve", None, 30),
+    "game_video_hevc": ("MP4", "libx265", "aac", None, None, "preserve", None, 27),
 }
 
 

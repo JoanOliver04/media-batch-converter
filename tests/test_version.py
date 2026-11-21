@@ -15,7 +15,9 @@ class VersionMetadataTests(unittest.TestCase):
         metadata = render_version_info()
         self.assertIn(APP_NAME, metadata)
         self.assertIn(f'"{APP_VERSION}"', metadata)
-        self.assertEqual(version_tuple(APP_VERSION), (0, 2, 1, 0))
+
+    def test_windows_version_tuple_appends_a_build_component(self) -> None:
+        self.assertEqual(version_tuple("12.3.45"), (12, 3, 45, 0))
 
 
 if __name__ == "__main__":

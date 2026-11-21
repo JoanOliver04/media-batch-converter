@@ -9,7 +9,9 @@ from typing import Any
 
 PROCESS_STOP_SECONDS = 2
 PROCESS_KILL_SECONDS = 3
-MEDIA_DEMUXERS = "aac,asf,avi,flac,matroska,webm,mov,mp4,m4a,mp3,mpeg,mpegts,ogg,wav"
+MEDIA_DEMUXERS = (
+    "aac,asf,avi,flac,matroska,webm,mov,mp4,m4a,m4v,mp3,mpeg,mpegts,ogg,wav"
+)
 
 
 def local_media_input(source: Path) -> list[str]:

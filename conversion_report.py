@@ -138,6 +138,8 @@ def file_entry(
         "quality": result.quality,
         "encodingMode": result.encoder_mode,
         "sha256": result.sha256,
+        "attemptedOutputBytes": result.attempted_output_bytes,
+        "outputAction": result.output_action,
     }
     entry.update({key: value for key, value in optional.items() if value is not None})
     if result.animation_mode is not None:

@@ -123,6 +123,9 @@ class ConverterPanel(ttk.Frame):
         self.generate_report = BooleanVar(
             value=self.settings_store.load_generate_report()
         )
+        self.only_smaller = BooleanVar(
+            value=self.settings_store.load_only_smaller(self.MEDIA_TYPE)
+        )
         self.report_path_mode = StringVar(
             value=(
                 t("ui.report_paths.absolute")
@@ -296,15 +299,22 @@ class ConverterPanel(ttk.Frame):
         ).grid(row=6, column=0, pady=(3, 0), sticky="w")
         self.output_format.trace_add("write", self._output_format_changed)
         self.selection.trace_add("write", self._selection_changed)
+        self.only_smaller_check = ttk.Checkbutton(
+            policy_box,
+            text=t("ui.check.only_smaller"),
+            variable=self.only_smaller,
+            command=self.only_smaller_changed,
+        )
+        self.only_smaller_check.grid(row=7, column=0, pady=(10, 0), sticky="w")
         self.report_check = ttk.Checkbutton(
             policy_box,
             text=t("ui.check.report"),
             variable=self.generate_report,
             command=self.report_settings_changed,
         )
-        self.report_check.grid(row=7, column=0, pady=(10, 0), sticky="w")
+        self.report_check.grid(row=8, column=0, pady=(10, 0), sticky="w")
         report_row = ttk.Frame(policy_box)
-        report_row.grid(row=8, column=0, sticky="w", pady=(4, 0))
+        report_row.grid(row=9, column=0, sticky="w", pady=(4, 0))
         ttk.Label(report_row, text=t("ui.label.report_paths")).pack(
             side="left", padx=(0, 8)
         )
@@ -422,6 +432,14 @@ class ConverterPanel(ttk.Frame):
             self.settings_store.save_generate_report(self.generate_report.get())
             self.settings_store.save_report_absolute_paths(
                 self.report_path_mode.get() == t("ui.report_paths.absolute")
+            )
+        except OSError:
+            pass
+
+    def only_smaller_changed(self) -> None:
+        try:
+            self.settings_store.save_only_smaller(
+                self.MEDIA_TYPE, self.only_smaller.get()
             )
         except OSError:
             pass
@@ -673,6 +691,7 @@ class ConverterPanel(ttk.Frame):
             "output_policy": self.output_policy.get(),
             "normalize_filenames": self.normalize_filenames.get(),
             "generate_report": self.generate_report.get(),
+            "only_smaller": self.only_smaller.get(),
             "report_absolute_paths": self.report_path_mode.get()
             == t("ui.report_paths.absolute"),
         }
@@ -752,6 +771,7 @@ class ConverterPanel(ttk.Frame):
         self.policy_selector.configure(state="disabled" if busy else "readonly")
         self.normalize_check.configure(state=state)
         self.report_check.configure(state=state)
+        self.only_smaller_check.configure(state=state)
         self.report_path_selector.configure(
             state="readonly" if not busy and self.generate_report.get() else "disabled"
         )

@@ -2,7 +2,7 @@
 
 Desktop application for converting and optimizing images, audio, video, and documents individually or in batches. It is built with Python, Tkinter, Pillow, and FFmpeg, with an optional LibreOffice engine for high-fidelity office files.
 
-[Quick start](#quick-usage) · [Supported formats](#supported-formats) · [Review and retry a batch](#review-and-retry-a-batch) · [Run from source](#run-from-source)
+[Quick start](#quick-usage) · [Compress game assets](#compress-game-assets) · [Supported formats](#supported-formats) · [Run from source](#run-from-source)
 
 ## Screenshots
 
@@ -33,6 +33,7 @@ Desktop application for converting and optimizing images, audio, video, and docu
 - Create multi-resolution ICO favicons from logos and other images.
 - Control video resolution, frame-rate limit, aspect handling, codecs, audio removal, CRF quality, and an optional hard size cap.
 - Choose how existing outputs are handled: skip, safe overwrite, unique name, or overwrite only when newer.
+- Save converted files only when the measured result is smaller than the source, including companions and extracted frames.
 - Keep both files when a batch would otherwise write two sources to the same destination name.
 - Optionally normalize generated filenames without renaming originals. Windows reserved device names are always avoided.
 - Generate privacy-aware JSON reports with chunked SHA-256 checksums.
@@ -46,7 +47,7 @@ Desktop application for converting and optimizing images, audio, video, and docu
 
 | Media | Input and output formats |
 | --- | --- |
-| Images | PNG, JPG, WebP, ICO, BMP, TIFF, GIF |
+| Images | PNG, JPG, WebP, AVIF, ICO, BMP, TIFF, GIF |
 | Audio | MP3, WAV, FLAC, OGG, M4A/AAC, Opus |
 | Video | MP4, MKV, WebM, MOV, AVI |
 | Files | PDF, DOCX, ODT, RTF, TXT, Markdown, HTML, XLSX, CSV, PPTX; DOC/XLS/PPT/ODP through LibreOffice |
@@ -55,15 +56,19 @@ Exact codec availability depends on the Pillow and FFmpeg builds in use. Transpa
 
 ## Download and install on Windows
 
-Download the ZIP attached to the relevant GitHub Release, verify its SHA-256 checksum, extract the complete folder, and run:
+Download the Windows x64 ZIP from the [latest GitHub release](https://github.com/JoanOliver04/media-batch-converter/releases/latest), compare its SHA-256 with the accompanying `.sha256` file, then extract the complete folder and run the executable.
 
 ```text
 MediaBatchConverter\MediaBatchConverter.exe
 ```
 
-Keep the folder contents together: the executable uses the bundled FFmpeg and support files. Windows may show a reputation warning for an unsigned community build. Review the release source and checksum before running it.
+Keep the executable and the `_internal` folder together. Windows may show a reputation warning for the unsigned build.
 
-No installer is currently provided. The application does not install dependencies or run `pip` automatically.
+Images and documents are available immediately. For audio and video, download a Windows build from the [FFmpeg download page](https://ffmpeg.org/download.html#build-windows). Copy its `bin\ffmpeg.exe` into an `ffmpeg` folder beside `MediaBatchConverter.exe` and restart the app. An existing FFmpeg installation on `PATH` or an absolute `FFMPEG_PATH` also works. Check the **Diagnostics** tab to see which executable is active.
+
+To put the app on your desktop, right-click `MediaBatchConverter.exe` and choose **Show more options → Send to → Desktop (create shortcut)**. The shortcut uses the app icon and points to the extracted folder.
+
+The Windows build runs as a portable app. The application does not install dependencies or run `pip` automatically.
 
 ## Quick usage
 
@@ -82,6 +87,22 @@ Outputs are created in a `convertidos_<format>` folder beside the source by defa
 - **Files** lists converted, skipped and failed files. Use the status filter and page controls to find a file. Select a row to see its paths, size, warnings, and SHA-256 when available.
 - **Retry failed files** processes failed entries using the format, encoding settings and destination of the completed batch. It preserves existing outputs by choosing a free filename. Discovery errors remain visible in **Overview** and can be revisited by starting a new folder scan.
 - **Last results** keeps the latest completed batch for each tab during the current session. Enable the JSON report before conversion to keep a record on disk.
+
+## Compress game assets
+
+Keep a master copy of the sources. Convert a few representative assets first and check them in the actual game at their display size. Then apply the settings to the full folder. Enable **Save only if smaller** under **Output** to keep conversions that reduce storage. Equal-sized and larger candidates appear as skipped, with the measured candidate size in the summary and JSON report. This also works when converting to the same format.
+
+| Asset | Starting point | What to check in the game |
+| --- | --- | --- |
+| Sprites, icons and UI | **Lossless archive** (PNG) or **Transparent UI asset** (lossless WebP) | Text edges, transparent borders, and import support |
+| Illustrated backgrounds | **Game background (AVIF)** or **General mobile asset** (WebP) | Decoder support, gradients, and detail at the size shown on screen |
+| Stereo soundtrack | **Game music (AAC)**, **Game music (Opus)** or **Game music (Vorbis)** where the engine supports them | Compare samples at the same loudness and check loop seams |
+| Audio that must remain lossless | **Game audio (FLAC)** for supported PCM inputs | Sample format and playback support |
+| Cinematics | **Game cinematic (HEVC)** or the existing **High quality 1080p** H.264 preset | Playback on target devices, frame pacing, and color. The HEVC preset is intended for SDR video |
+
+The indexed PNG candidate must match the source pixels and alpha after any requested resize. The encoder compares actual file sizes for eligible PNG, JPEG, WebP and TIFF candidates. JPEG comparisons keep the chosen quality setting. Automatic WebP preserves low-color images and also tries lossless encoding on eligible still images when it can produce a smaller result. Choosing a compact codec or lowering resolution, bitrate or quality trades storage against fidelity. The video **Max MiB** limit can shorten a clip.
+
+The converter reports loose-file sizes in bytes. A game engine may encode the sources again during import. Check the compressed package in Play Console and the size after app thinning in App Store Connect. [Android game size guide](https://developer.android.com/games/optimize/game-size) · [Apple app size guide](https://developer.apple.com/documentation/xcode/reducing-your-app-s-size)
 
 ### Examples
 
@@ -160,7 +181,7 @@ ICO output preserves transparency and embeds the standard 16, 24, 32, 48, 64, 12
 
 - Automatic selects lossless for animations, palette images, and sampled images with at most 256 colors; it otherwise uses lossy encoding.
 - Lossy uses the quality slider while retaining alpha support.
-- Lossless preserves pixel values and ignores the quality slider.
+- Lossless preserves pixel values and uses the encoder's maximum compression effort. The visual quality slider applies to lossy WebP, JPEG and AVIF.
 
 ### Resizing
 
@@ -176,7 +197,11 @@ The Files tab converts through a shared intermediate model, so a new format is o
 
 LibreOffice, when installed, is an optional high-fidelity engine for Office binaries (DOC, XLS, PPT), ODF and layout-sensitive pairs such as DOCX → PDF. It is resolved the same way as FFmpeg: never downloaded, never invoked through a shell, isolated with a temporary user profile, and subject to a timeout. HTML conversions keep companion image files next to the document. The whole LibreOffice process tree is stopped on cancel or timeout. Set `LIBREOFFICE_PATH` to point at `soffice.exe` if the usual install locations are not used.
 
+The automatic engine selects a route supported by Writer, Calc, Impress or the built-in converter. For example, the built-in engine reconstructs slides as HTML and exports spreadsheet tables to PPTX. Forced LibreOffice mode checks the input and output pair before attempting conversion. Native Writer text and Calc CSV exports use UTF-8. [LibreOffice filter documentation](https://help.libreoffice.org/latest/en-US/text/shared/guide/convertfilters.html)
+
 Sources are sniffed by magic bytes. Office packages are checked for zip bombs, member-count limits and unsafe paths. Empty files, symlinks and extension mismatches are rejected before a reader opens them. Oversized embedded images are skipped instead of aborting the whole document.
+
+For eligible PDFs and Office ZIP packages, the app attempts a lossless compression pass and keeps it only when it reduces size. It preserves page content, Office package member bytes and standalone text format requirements. A document's size includes required companion assets when present.
 
 ## Presets and output safety
 
@@ -197,7 +222,7 @@ Optional reports record public settings, final resolved output paths, per-file s
 FFmpeg is resolved in this order:
 
 1. The trusted executable at the absolute path in `FFMPEG_PATH`, if configured.
-2. The packaged `ffmpeg` directory.
+2. An `ffmpeg` directory beside the executable, then the internal packaged directory.
 3. The executable provided by `imageio-ffmpeg`.
 4. An `ffmpeg` command on `PATH`.
 
@@ -233,7 +258,7 @@ The script creates an isolated `.build-venv`, installs pinned dependencies, runs
 dist\MediaBatchConverter\MediaBatchConverter.exe
 ```
 
-The build bundles the FFmpeg executable supplied by `imageio-ffmpeg` by default. To package a verified Windows build instead, set `MEDIA_BATCH_BUILD_FFMPEG` to its absolute executable path. If the executable's folder contains `LICENSE`, the build includes it with the binary. [Third-party notices](THIRD_PARTY_NOTICES.md)
+Local builds bundle the executable supplied by `imageio-ffmpeg` by default. To select a build explicitly, set `MEDIA_BATCH_BUILD_FFMPEG` to its absolute path. If its folder contains `LICENSE`, the build includes that file. Set `MEDIA_BATCH_BUILD_WITHOUT_FFMPEG=1` to build the public ZIP variant. [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 ## Testing and quality checks
 
@@ -242,6 +267,8 @@ python -m ruff format --check .
 python -m ruff check .
 python -m unittest discover -s tests -q
 ```
+
+Run the format matrix on its own with `python -m unittest discover -s tests -p test_format_matrix.py -v`. It generates temporary fixtures for the supported extensions and decodes the resulting files again. Audio and video tests use the configured FFmpeg binary. To test all native document pairs as well, install LibreOffice and set `MEDIA_BATCH_TEST_LIBREOFFICE_MATRIX=1` before running the command.
 
 Tests cover pure calculations, error and collision policies, recursive batches, reports, image transparency and animation, Unicode audio paths, video without audio, packaged resource resolution, accessibility scaling, catalogue consistency and language switching, document security checks, and integration combinations.
 
@@ -315,7 +342,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. Use the issue
 
 ## Release process
 
-The complete release checklist is in [RELEASING.md](RELEASING.md). Releases follow Semantic Versioning. The latest published release is **0.2.1**. Hardening after that release is documented under Unreleased in [CHANGELOG.md](CHANGELOG.md).
+The complete release checklist is in [RELEASING.md](RELEASING.md). Releases follow Semantic Versioning. See [GitHub Releases](https://github.com/JoanOliver04/media-batch-converter/releases) for downloads and [CHANGELOG.md](CHANGELOG.md) for the version history.
 
 Suggested repository topics: `python`, `tkinter`, `pillow`, `ffmpeg`, `image-converter`, `audio-converter`, `video-converter`, `batch-processing`, `webp`, `desktop-app`, `media-tools`.
 

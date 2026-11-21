@@ -224,8 +224,7 @@ def rewrite_pdf(source: Path, output: Path) -> None:
         raise DocumentError(t("document.corrupt_pdf"), ErrorCode.IO_ERROR) from error
     if reader.is_encrypted:
         raise DocumentError(t("document.encrypted"))
-    writer = PdfWriter()
-    writer.append(reader)
+    writer = PdfWriter(clone_from=reader)
     with output.open("wb") as handle:
         writer.write(handle)
 

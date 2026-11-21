@@ -207,4 +207,6 @@ def diagnostics_text(ffmpeg: FFmpegInfo | None = None) -> str:
         f"{t('diagnostics.line.log')}: {private_path(log_path())}",
         f"{t('diagnostics.line.image_formats')}: {image_formats}",
     ]
+    if ffmpeg is None:
+        lines.extend(("", t("diagnostics.ffmpeg_setup")))
     return "\n".join(lines)

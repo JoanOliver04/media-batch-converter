@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from tkinter import Tk, messagebox, ttk
+
+from PIL import Image, ImageTk
 
 from i18n import (
     available_languages,
@@ -39,6 +42,13 @@ class ConverterApp:
         set_language(self.settings_store.load_language())
         apply_theme(root)
         root.title(APP_NAME)
+        icon_path = Path(__file__).resolve().parents[1] / "assets" / "app-icon.png"
+        with Image.open(icon_path) as icon:
+            window_icon = ImageTk.PhotoImage(icon, master=root)
+            self.header_icon = ImageTk.PhotoImage(
+                icon.resize((24, 24), Image.Resampling.LANCZOS), master=root
+            )
+        root.iconphoto(True, window_icon, self.header_icon)
         width = min(1160, root.winfo_screenwidth() - 40)
         height = min(850, root.winfo_screenheight() - 105)
         root.geometry(f"{width}x{height}")
@@ -55,6 +65,9 @@ class ConverterApp:
             self.container, style="Surface.TFrame", padding=(20, 14, 20, 0)
         )
         header.pack(fill="x")
+        ttk.Label(header, image=self.header_icon, style="Wordmark.TLabel").pack(
+            side="left", padx=(0, 8)
+        )
         ttk.Label(header, text=APP_NAME, style="Wordmark.TLabel").pack(side="left")
 
         self._language_by_display = {

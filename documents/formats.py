@@ -58,25 +58,14 @@ SUFFIX_TO_FORMAT = {
 
 BUILTIN_READERS = frozenset({"PDF", "DOCX", "TXT", "MD", "HTML", "XLSX", "CSV", "PPTX"})
 BUILTIN_WRITERS = frozenset({"PDF", "DOCX", "TXT", "MD", "HTML", "XLSX", "CSV", "PPTX"})
-LIBREOFFICE_READERS = frozenset(
-    {
-        "PDF",
-        "DOCX",
-        "DOC",
-        "ODT",
-        "RTF",
-        "TXT",
-        "HTML",
-        "XLSX",
-        "XLS",
-        "CSV",
-        "PPTX",
-        "PPT",
-        "ODP",
-    }
-)
-LIBREOFFICE_WRITERS = frozenset(
-    {"PDF", "DOCX", "ODT", "RTF", "TXT", "HTML", "XLSX", "CSV", "PPTX"}
+WRITER_INPUTS = frozenset({"DOCX", "DOC", "ODT", "RTF", "TXT", "HTML"})
+CALC_INPUTS = frozenset({"XLSX", "XLS", "CSV"})
+IMPRESS_INPUTS = frozenset({"PPTX", "PPT", "ODP"})
+LIBREOFFICE_EXPORTS = (
+    (WRITER_INPUTS, frozenset({"PDF", "DOCX", "ODT", "RTF", "TXT", "HTML"})),
+    (CALC_INPUTS, frozenset({"PDF", "XLSX", "CSV", "TXT", "HTML"})),
+    (IMPRESS_INPUTS, frozenset({"PDF", "PPTX"})),
+    (frozenset({"PDF"}), frozenset({"PDF", "HTML"})),
 )
 #: Office binaries and layout-heavy pairs prefer LibreOffice when present.
 LAYOUT_FORMATS = frozenset(
@@ -112,9 +101,10 @@ def builtin_supports(source_format: str, dest_format: str) -> bool:
 
 
 def libreoffice_supports(source_format: str, dest_format: str) -> bool:
-    return (
-        normalize_format(source_format) in LIBREOFFICE_READERS
-        and normalize_format(dest_format) in LIBREOFFICE_WRITERS
+    source = normalize_format(source_format)
+    dest = normalize_format(dest_format)
+    return any(
+        source in inputs and dest in outputs for inputs, outputs in LIBREOFFICE_EXPORTS
     )
 
 

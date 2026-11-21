@@ -7,7 +7,7 @@ import subprocess
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from audio_encoding import encoder_available
@@ -46,6 +46,7 @@ class FFmpegBatch:
     policy: OutputPolicy
     normalize: bool
     generate_report: bool
+    only_smaller: bool
     audio_only: bool
     name_collisions: set[str]
     total: int
@@ -125,6 +126,7 @@ class FFmpegPanel(ConverterPanel):
             policy=OutputPolicy(options.get("output_policy", OutputPolicy.SKIP)),
             normalize=normalize,
             generate_report=bool(options.get("generate_report", False)),
+            only_smaller=bool(options.get("only_smaller", False)),
             audio_only=audio_only,
             name_collisions=batch_name_collision_keys(
                 destination, source_root, files, extension, normalize
@@ -246,11 +248,7 @@ class FFmpegPanel(ConverterPanel):
                 and output_bytes > batch.output_limit_bytes
             ):
                 raise UserFacingError(t("ui.video.output_exceeds_limit"))
-            commit_output(plan)
-            checksum, checksum_warnings = self.checksum_for_report(
-                plan.target, batch.generate_report
-            )
-            return FileResult(
+            result = FileResult(
                 source,
                 plan.target,
                 ResultStatus.CONVERTED,
@@ -259,9 +257,15 @@ class FFmpegPanel(ConverterPanel):
                 processing_seconds=time.monotonic() - started,
                 output_action=plan.action.value,
                 name_collision=collision,
-                warnings=checksum_warnings,
-                sha256=checksum,
+            ).require_savings(batch.only_smaller)
+            if result.status is ResultStatus.SKIPPED:
+                cleanup_temporary(plan)
+                return result
+            commit_output(plan)
+            checksum, warnings = self.checksum_for_report(
+                plan.target, batch.generate_report
             )
+            return replace(result, sha256=checksum, warnings=warnings)
         except Exception as error:
             logging.getLogger(__name__).exception("conversion_failed source=%s", source)
             cleanup_temporary(plan)

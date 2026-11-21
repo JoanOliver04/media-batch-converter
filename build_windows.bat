@@ -3,6 +3,8 @@ setlocal
 cd /d "%~dp0"
 
 set "BUILD_VENV=.build-venv"
+if not defined MEDIA_BATCH_DIST_PATH set "MEDIA_BATCH_DIST_PATH=dist"
+if not defined MEDIA_BATCH_WORK_PATH set "MEDIA_BATCH_WORK_PATH=build"
 if not exist "%BUILD_VENV%\Scripts\python.exe" (
     echo Creating isolated build environment...
     py -3.12 -m venv "%BUILD_VENV%" || goto :error
@@ -18,10 +20,10 @@ echo Generating Windows version metadata...
 "%BUILD_VENV%\Scripts\python.exe" generate_version_info.py || goto :error
 
 echo Building one-folder Windows distribution...
-"%BUILD_VENV%\Scripts\python.exe" -m PyInstaller --noconfirm --clean media_batch_converter.spec || goto :error
+"%BUILD_VENV%\Scripts\python.exe" -m PyInstaller --noconfirm --clean --distpath "%MEDIA_BATCH_DIST_PATH%" --workpath "%MEDIA_BATCH_WORK_PATH%" media_batch_converter.spec || goto :error
 
-if not exist "dist\MediaBatchConverter\MediaBatchConverter.exe" goto :missing
-echo Build complete: %CD%\dist\MediaBatchConverter\MediaBatchConverter.exe
+if not exist "%MEDIA_BATCH_DIST_PATH%\MediaBatchConverter\MediaBatchConverter.exe" goto :missing
+echo Build complete: %MEDIA_BATCH_DIST_PATH%\MediaBatchConverter\MediaBatchConverter.exe
 exit /b 0
 
 :missing

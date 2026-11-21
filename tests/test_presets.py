@@ -30,6 +30,7 @@ EXPECTED_IDS = {
     "transparent_ui_asset",
     "thumbnail",
     "lossless_archive",
+    "game_background_avif",
 }
 
 
@@ -46,6 +47,7 @@ class PresetModelTests(unittest.TestCase):
             "transparent_ui_asset": ("WebP", None, WebPMode.LOSSLESS),
             "thumbnail": ("WebP", 78, WebPMode.LOSSY),
             "lossless_archive": ("PNG", None, None),
+            "game_background_avif": ("AVIF", 72, None),
         }
         for preset_id, values in expected.items():
             preset = preset_by_id(preset_id)

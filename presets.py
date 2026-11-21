@@ -25,6 +25,7 @@ class AudioSettings:
     quality_mode: str
     profile: str | None = None
     normalize_loudness: bool = False
+    vbr_quality: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +99,7 @@ IMAGE_PRESETS = (
         None,
         None,
     ),
+    ConversionPreset("game_background_avif", "image", "AVIF", 72),
 )
 
 AUDIO_PRESETS = (
@@ -130,6 +132,33 @@ AUDIO_PRESETS = (
         "audio",
         "M4A",
         audio_settings=AudioSettings("aac", 48_000, 1, 96, "bitrate", "aac_low"),
+    ),
+    ConversionPreset(
+        "game_music_aac",
+        "audio",
+        "M4A",
+        audio_settings=AudioSettings("aac", None, None, 144, "bitrate", "aac_low"),
+    ),
+    ConversionPreset(
+        "game_music_opus",
+        "audio",
+        "Opus",
+        audio_settings=AudioSettings("libopus", None, None, 112, "bitrate"),
+    ),
+    ConversionPreset(
+        "game_music_vorbis",
+        "audio",
+        "OGG",
+        quality=70,
+        audio_settings=AudioSettings(
+            "libvorbis", None, None, None, "vbr", vbr_quality=4.2
+        ),
+    ),
+    ConversionPreset(
+        "game_audio_lossless",
+        "audio",
+        "FLAC",
+        audio_settings=AudioSettings("flac", None, None, None, "lossless"),
     ),
 )
 
@@ -172,6 +201,14 @@ VIDEO_PRESETS = (
         "WebM",
         video_settings=VideoSettings(
             "libvpx-vp9", "libopus", None, None, "preserve", None, 30
+        ),
+    ),
+    ConversionPreset(
+        "game_video_hevc",
+        "video",
+        "MP4",
+        video_settings=VideoSettings(
+            "libx265", "aac", None, None, "preserve", None, 27, faststart=True
         ),
     ),
 )
@@ -331,6 +368,12 @@ class SettingsStore:
 
     def load_generate_report(self) -> bool:
         return self._read().get("generate_report") is True
+
+    def load_only_smaller(self, media_type: str) -> bool:
+        return self._read().get(f"only_smaller_{media_type}") is True
+
+    def save_only_smaller(self, media_type: str, enabled: bool) -> None:
+        self._update(f"only_smaller_{media_type}", enabled)
 
     def save_generate_report(self, enabled: bool) -> None:
         self._update("generate_report", bool(enabled))

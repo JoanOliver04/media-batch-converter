@@ -12,7 +12,7 @@ Pillow is installed from PyPI and used for image decoding and encoding. The pinn
 
 ## FFmpeg
 
-Windows builds bundle FFmpeg from the pinned `imageio-ffmpeg` package or the executable selected via `MEDIA_BATCH_BUILD_FFMPEG`. Identify the actual binary and corresponding source for each distribution.
+The public Windows ZIP uses a separately installed FFmpeg executable. Source runs can use the binary provided by `imageio-ffmpeg`. Local Windows builds can bundle that binary or use the executable selected via `MEDIA_BATCH_BUILD_FFMPEG`. Identify the actual binary and corresponding source for any distribution that includes FFmpeg.
 
 The pinned Windows binary is FFmpeg 7.1 essentials from gyan.dev and reports `--enable-gpl --enable-version3`; redistribution must therefore be treated as GPLv3-or-later rather than LGPL-only. A release must retain the applicable notices, identify the exact source at https://www.gyan.dev/ffmpeg/builds/, and satisfy the corresponding-source obligations. Codec patents and other obligations can vary by jurisdiction. See https://ffmpeg.org/legal.html.
 

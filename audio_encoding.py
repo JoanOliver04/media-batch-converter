@@ -33,6 +33,12 @@ def validate_audio_settings(container: str, settings: AudioSettings) -> None:
         raise ValueError(t("audio.channels_invalid"))
     if settings.bitrate_kbps is not None and settings.bitrate_kbps <= 0:
         raise ValueError(t("audio.bitrate_positive"))
+    if settings.vbr_quality is not None and (
+        settings.codec not in {"libmp3lame", "libvorbis"}
+        or settings.bitrate_kbps is not None
+        or not 0 <= settings.vbr_quality <= 9
+    ):
+        raise ValueError(t("audio.vbr_invalid"))
     if settings.codec == "aac" and settings.profile != "aac_low":
         raise ValueError(t("audio.aac_profile_required"))
     if settings.normalize_loudness:
@@ -46,12 +52,18 @@ def build_audio_args(container: str, settings: AudioSettings) -> list[str]:
         args.extend(("-profile:a", "aac_low"))
     if settings.codec == "flac":
         args.extend(("-compression_level", "8"))
+    elif settings.codec == "libopus":
+        args.extend(("-vbr", "on", "-compression_level", "10"))
+    elif settings.codec == "libmp3lame":
+        args.extend(("-compression_level", "0"))
     if settings.sample_rate is not None:
         args.extend(("-ar", str(settings.sample_rate)))
     if settings.channels is not None:
         args.extend(("-ac", str(settings.channels)))
     if settings.bitrate_kbps is not None:
         args.extend(("-b:a", f"{settings.bitrate_kbps}k"))
+    if settings.vbr_quality is not None:
+        args.extend(("-q:a", str(settings.vbr_quality)))
     return args
 
 
@@ -86,17 +98,26 @@ def manual_audio_settings(
         "OGG": "libvorbis",
         "OPUS": "libopus",
     }[container.upper()]
+    quality = max(1, min(100, quality))
+    vbr_quality = None
     if container.upper() in {"WAV", "FLAC"}:
         bitrate_kbps = None
+    elif bitrate_kbps is None and codec == "libmp3lame":
+        vbr_quality = round(9 - quality * 0.09, 2)
+    elif bitrate_kbps is None and codec == "libvorbis":
+        vbr_quality = round(quality * 0.06, 2)
     elif bitrate_kbps is None:
-        bitrate_kbps = round(64 + max(1, min(100, quality)) * 2.56)
+        bitrate_kbps = round(64 + quality * 2.56)
     return AudioSettings(
         codec,
         sample_rate,
         channels,
         bitrate_kbps,
-        "lossless" if container.upper() in {"WAV", "FLAC"} else "bitrate",
+        "vbr"
+        if vbr_quality is not None
+        else ("bitrate" if bitrate_kbps is not None else "lossless"),
         "aac_low" if codec == "aac" else None,
+        vbr_quality=vbr_quality,
     )
 
 

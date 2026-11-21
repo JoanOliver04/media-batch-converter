@@ -75,7 +75,7 @@ def webp_save_options(mode: WebPMode | str, quality: int) -> dict[str, object]:
     if resolved is WebPMode.AUTOMATIC:
         raise ValueError("Automatic WebP mode must be resolved before encoding.")
     if resolved is WebPMode.LOSSLESS:
-        return {"lossless": True, "method": 6, "exact": True}
+        return {"lossless": True, "quality": 100, "method": 6, "exact": True}
     return {
         "lossless": False,
         "quality": max(1, min(100, int(quality))),

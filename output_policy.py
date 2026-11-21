@@ -28,6 +28,7 @@ class OutputAction(StrEnum):
     RENAME = "renamed"
     SKIP_EXISTS = "skipped_exists"
     SKIP_UP_TO_DATE = "skipped_up_to_date"
+    SKIP_NO_SAVINGS = "skipped_no_savings"
 
 
 @dataclass(frozen=True, slots=True)

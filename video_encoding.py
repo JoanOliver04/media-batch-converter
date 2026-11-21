@@ -12,9 +12,9 @@ from process_control import ffmpeg_transcode_args, local_media_input, text_kwarg
 
 ASPECT_MODES = {"preserve", "fit", "fill", "stretch"}
 CONTAINER_VIDEO_CODECS = {
-    "MP4": {"libx264"},
-    "MOV": {"libx264"},
-    "MKV": {"libx264", "libvpx-vp9"},
+    "MP4": {"libx264", "libx265"},
+    "MOV": {"libx264", "libx265"},
+    "MKV": {"libx264", "libx265", "libvpx-vp9"},
     "WEBM": {"libvpx-vp9"},
     "AVI": {"mpeg4"},
 }
@@ -153,10 +153,14 @@ def build_video_args(container: str, settings: VideoSettings) -> list[str]:
         args.extend(("-q:v", str(max(1, min(31, round(settings.crf / 2))))))
     else:
         args.extend(("-crf", str(settings.crf)))
-    if settings.video_codec == "libx264":
+    if settings.video_codec in {"libx264", "libx265"}:
         args.extend(("-preset", "slow"))
+        if settings.video_codec == "libx265" and container.upper() in {"MOV", "MP4"}:
+            args.extend(("-tag:v", "hvc1"))
     elif settings.video_codec == "libvpx-vp9":
-        args.extend(("-b:v", "0"))
+        args.extend(
+            ("-b:v", "0", "-deadline", "good", "-cpu-used", "2", "-row-mt", "1")
+        )
     if settings.remove_audio:
         args.append("-an")
     else:

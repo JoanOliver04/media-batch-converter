@@ -47,6 +47,10 @@ def file_details(result: FileResult) -> str:
     lines.append(f"{t('summary.original_size')}: {format_bytes(result.original_bytes)}")
     if result.status is ResultStatus.CONVERTED:
         lines.append(f"{t('summary.output_size')}: {format_bytes(result.output_bytes)}")
+    if result.attempted_output_bytes is not None:
+        lines.append(
+            f"{t('summary.attempted_size')}: {format_bytes(result.attempted_output_bytes)}"
+        )
     if result.error_message and not any(
         isinstance(warning, ImageWarning) and warning.message == result.error_message
         for warning in result.warnings

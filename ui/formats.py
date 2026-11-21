@@ -9,6 +9,7 @@ from filename_normalization import collision_keys, output_filename
 
 IMAGE_FORMATS = {
     "WebP": ("WEBP", ".webp"),
+    "AVIF": ("AVIF", ".avif"),
     "JPG": ("JPEG", ".jpg"),
     "PNG": ("PNG", ".png"),
     "ICO (favicon)": ("ICO", ".ico"),
@@ -36,6 +37,7 @@ IMAGE_EXTENSIONS = {
     ".jpg",
     ".jpeg",
     ".webp",
+    ".avif",
     ".ico",
     ".bmp",
     ".tif",
