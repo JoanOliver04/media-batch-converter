@@ -252,6 +252,30 @@ def apply_theme(root: Tk) -> ttk.Style:
         foreground=[("selected", SIGNAL), ("active", TEXT), ("disabled", LINE)],
     )
 
+    style.configure(
+        "Results.Treeview",
+        background=RAISED,
+        fieldbackground=RAISED,
+        foreground=TEXT,
+        bordercolor=LINE,
+        lightcolor=LINE,
+        darkcolor=LINE,
+        rowheight=round(root.winfo_fpixels("18p")),
+    )
+    style.configure(
+        "Results.Treeview.Heading",
+        background=PANEL,
+        foreground=TEXT,
+        bordercolor=LINE,
+        padding=(8, 5),
+    )
+    style.map(
+        "Results.Treeview",
+        background=[("selected", SIGNAL)],
+        foreground=[("selected", SURFACE)],
+    )
+    style.map("Results.Treeview.Heading", background=[("active", RAISED)])
+
     for name in ("TScrollbar", "Vertical.TScrollbar", "Horizontal.TScrollbar"):
         style.configure(
             name,

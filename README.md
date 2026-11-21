@@ -2,6 +2,8 @@
 
 Desktop application for converting and optimizing images, audio, video, and documents individually or in batches. It is built with Python, Tkinter, Pillow, and FFmpeg, with an optional LibreOffice engine for high-fidelity office files.
 
+[Quick start](#quick-usage) · [Supported formats](#supported-formats) · [Review and retry a batch](#review-and-retry-a-batch) · [Run from source](#run-from-source)
+
 ## Screenshots
 
 ### Image conversion
@@ -35,7 +37,7 @@ Desktop application for converting and optimizing images, audio, video, and docu
 - Optionally normalize generated filenames without renaming originals. Windows reserved device names are always avoided.
 - Generate privacy-aware JSON reports with chunked SHA-256 checksums.
 - Preserve supported animations, extract frames, or explicitly keep only the first frame.
-- Review validation warnings, progress, cancellation, and a final batch summary.
+- Review progress, reopen the latest batch on each tab, filter file results, and retry failed files.
 - Switch the interface between Spanish and English at any time from the language selector.
 - Read dense settings comfortably in a dark, instrument-style interface built for long sessions.
 - Process everything locally. No media is uploaded.
@@ -70,9 +72,16 @@ No installer is currently provided. The application does not install dependencie
 3. For folders, choose whether to include subfolders.
 4. Select an output format and preset or manual settings.
 5. Review the output folder and choose the existing-file policy and optional report settings.
-6. Start conversion and review the final summary.
+6. Start conversion and review the summary. Use **Last results** to reopen it later.
 
 Outputs are created in a `convertidos_<format>` folder beside the source by default. **Choose folder** uses a different parent and keeps the format-specific subfolder. Existing `converted_*` and `convertidos_*` directories, symbolic links, and Windows directory junctions are excluded from recursive discovery. The app removes empty directories created by unsuccessful conversions.
+
+## Review and retry a batch
+
+- **Overview** shows totals, elapsed time, size changes, the output folder, and any report or discovery warnings.
+- **Files** lists converted, skipped and failed files. Use the status filter and page controls to find a file. Select a row to see its paths, size, warnings, and SHA-256 when available.
+- **Retry failed files** processes failed entries using the format, encoding settings and destination of the completed batch. It preserves existing outputs by choosing a free filename. Discovery errors remain visible in **Overview** and can be revisited by starting a new folder scan.
+- **Last results** keeps the latest completed batch for each tab during the current session. Enable the JSON report before conversion to keep a record on disk.
 
 ### Examples
 
@@ -94,7 +103,7 @@ switch between tabs, and Tab to reach controls inside the selected workspace.
 The palette and typography in `ui/theme.py` apply across the conversion tabs,
 summary window and diagnostics console.
 
-## Screenshots
+## Reproduce screenshots
 
 The images above are generated, not taken by hand:
 
@@ -127,16 +136,15 @@ selector at the top right of the window; the change applies immediately, without
 restarting.
 
 The choice is stored with the rest of the local settings and restored on the next
-launch. Spanish is the default. Everything the user reads follows the selection:
-tabs, controls, presets, validation warnings, progress status, batch summaries,
-error messages and the text inside JSON reports. The stable `code` field of each
-report warning does not change with the language, so reports stay machine-readable
-either way.
+launch. Spanish is the default. Tabs, controls and summaries follow the active
+language. File messages originally recorded in the latest batch and text already
+written to JSON reports preserve their original wording. Report warning codes are
+stable across languages.
 
-Switching keeps the active tab, selected sources, recursive option and chosen
-output parent. Presets and output policies are restored from preferences. Finish
-or cancel an active conversion before switching languages. When closing during a
-batch, the app waits for cancelled work to clean up.
+Switching keeps the active tab, selected sources, recursive option, chosen output
+parent and latest batch results. Presets and output policies are restored from
+preferences. Finish or cancel an active conversion before switching languages.
+When closing during a batch, the app waits for cancelled work to clean up.
 
 To add another language, copy `locales/es.py`, translate the values, and register
 the module in `i18n.py`. `tests/test_i18n.py` fails if a catalogue is missing a
@@ -254,6 +262,7 @@ ui/                           Tkinter presentation layer
   formats.py                  Supported formats and output path resolution
   theme.py                    Palette, typography and ttk styling
   widgets.py                  Scrollable tab viewport
+  summary_dialog.py           Batch totals, per-file details and retry action
   diagnostics.py              Diagnostics tab
   document_panel.py           Files tab
 documents/                    Document conversion package

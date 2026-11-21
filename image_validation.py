@@ -12,6 +12,7 @@ from typing import Any
 from PIL import ExifTags, Image, ImageCms, UnidentifiedImageError
 
 from animation_handling import animation_supported
+from error_handling import UserFacingError
 from i18n import t
 
 EXTREME_DIMENSION = 16_000
@@ -75,10 +76,15 @@ class ImageWarning:
         return self.severity is WarningSeverity.BLOCKING_ERROR
 
 
-class ImageValidationError(Exception):
+class ImageValidationError(UserFacingError):
     def __init__(self, warnings_found: list[ImageWarning]) -> None:
         self.warnings = tuple(warnings_found)
-        super().__init__("; ".join(warning.message for warning in warnings_found))
+        super().__init__(
+            next(
+                (warning.message for warning in warnings_found if warning.blocking),
+                t("error.unsupported"),
+            )
+        )
 
 
 def _warning(
@@ -318,12 +324,12 @@ def validate_image(source: Path, target_format: str) -> list[ImageWarning]:
                 source,
             )
         )
-    except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as error:
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError):
         found.append(
             _warning(
                 ImageWarningCode.CORRUPTED_IMAGE,
                 WarningSeverity.BLOCKING_ERROR,
-                t("validation.corrupted", detail=error),
+                t("validation.corrupted"),
                 source,
             )
         )

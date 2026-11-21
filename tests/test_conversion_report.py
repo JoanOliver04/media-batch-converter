@@ -50,6 +50,10 @@ class ConversionReportTests(unittest.TestCase):
         panel.root = ImmediateRoot()
         panel.status = Mock()
         panel.set_busy = Mock()
+        panel.results_button = Mock()
+        panel._summary_window = None
+        panel._active_request = None
+        panel.closing = False
         result = FileResult(
             Path("image.png"),
             Path("image.webp"),
@@ -61,7 +65,9 @@ class ConversionReportTests(unittest.TestCase):
         summary = BatchSummary(1, (result,), 1)
         with patch("ui.base.show_summary") as show:
             panel.show_results(Path("output"), summary, None)
-        show.assert_called_once_with(panel.root, summary, Path("output"), None)
+        show.assert_called_once_with(
+            panel.root, summary, Path("output"), None, source_root=None, retry=None
+        )
 
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()

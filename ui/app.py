@@ -164,19 +164,23 @@ class ConverterApp:
                 panel.selected_files,
                 panel.destination_parent,
                 panel.recursive.get(),
+                panel.finished_batch,
             )
             for panel in self.panels
         ]
+        for panel in self.panels:
+            panel.close_results()
         for child in self.container.winfo_children():
             child.destroy()
         self.panels = ()
         self._build()
-        for panel, (selection, files, destination, recursive) in zip(
+        for panel, (selection, files, destination, recursive, finished_batch) in zip(
             self.panels, selections, strict=True
         ):
             panel.recursive.set(recursive)
             panel.set_destination(destination)
             panel.restore_sources(selection, files)
+            panel.restore_finished_batch(finished_batch)
         if self.notebook.tab(current_tab, "state") == "normal":
             self.notebook.select(current_tab)
 

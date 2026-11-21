@@ -7,9 +7,12 @@ from pathlib import Path
 from tkinter import TclError, Tk, ttk
 from unittest.mock import Mock, patch
 
+from conversion_results import BatchSummary, FileResult, ResultStatus
 from i18n import DEFAULT_LANGUAGE, Language, current_language, set_language
 from presets import SettingsStore
 from ui.app import ConverterApp
+from ui.base import BatchRequest, FinishedBatch
+from ui.summary_dialog import FileResults, PAGE_SIZE
 
 
 def find_notebook(widget):
@@ -124,6 +127,78 @@ class LanguageSelectorTests(unittest.TestCase):
             panel.start()
         warned.assert_called_once()
         self.assertFalse(panel.busy)
+
+    def test_reopen_and_retry_after_switching_language(self) -> None:
+        app = self.build()
+        source_root = Path(self.temporary.name)
+        source = source_root / "nested" / "photo.png"
+        request = BatchRequest(
+            source_root,
+            None,
+            "PNG",
+            77,
+            True,
+            {"output_policy": "overwrite"},
+            source_root,
+        )
+        summary = BatchSummary(
+            1, (FileResult(source, None, ResultStatus.FAILED, 12),), 1
+        )
+        app.panels[0].restore_finished_batch(
+            FinishedBatch(summary, source_root / "convertidos_png", None, request)
+        )
+        app.panels[0].open_last_results()
+        previous_window = app.panels[0]._summary_window
+
+        self.select(app, "English")
+        self.assertFalse(previous_window.winfo_exists())
+        panel = app.panels[0]
+        self.assertEqual(panel.last_summary, summary)
+        panel.output_format.set("JPG")
+        panel.open_last_results()
+        self.assertEqual(panel._summary_window.title(), "Conversion summary")
+        with patch.object(panel, "_start_batch") as start:
+            self.assertTrue(panel.retry_failed())
+        retry = start.call_args.args[0]
+        self.assertEqual(
+            (retry.source_root, retry.files, retry.output_format, retry.quality),
+            (source_root, (source,), "PNG", 77),
+        )
+        self.assertEqual(retry.destination_parent, source_root)
+        self.assertEqual(retry.options["output_policy"], "unique")
+        self.assertEqual(request.options["output_policy"], "overwrite")
+
+    def test_paginated_file_results_support_filtering_and_detail(self) -> None:
+        app = self.build()
+        source_root = Path(self.temporary.name)
+        records = tuple(
+            FileResult(source_root / f"asset-{i}.png", None, ResultStatus.SKIPPED, 1)
+            for i in range(PAGE_SIZE + 1)
+        ) + (
+            FileResult(
+                source_root / "corrupt.png",
+                None,
+                ResultStatus.FAILED,
+                1,
+                error_message="Broken image",
+            ),
+        )
+        browser = FileResults(
+            app.container, BatchSummary(len(records), records, 2), source_root
+        )
+        self.assertEqual(len(browser.table.get_children()), PAGE_SIZE)
+        browser.next.invoke()
+        self.assertEqual(len(browser.table.get_children()), 2)
+        browser.filter.set(
+            next(
+                label
+                for label, state in browser.filters.items()
+                if state is ResultStatus.FAILED
+            )
+        )
+        browser.apply_filter()
+        self.assertEqual(len(browser.table.get_children()), 1)
+        self.assertIn("Broken image", browser.details.get("1.0", "end-1c"))
 
     def test_only_one_notebook_survives_a_rebuild(self) -> None:
         app = self.build()

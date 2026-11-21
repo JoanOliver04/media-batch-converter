@@ -6,7 +6,7 @@ import logging
 import subprocess
 import threading
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from tkinter import (
@@ -28,22 +28,49 @@ from conversion_report import (
     sha256_file,
     write_report_atomic,
 )
-from conversion_results import BatchSummary, FileResult
+from conversion_results import BatchSummary, FileResult, ResultStatus
 from error_handling import UserFacingError, describe_error
 from filename_normalization import output_filename
 from i18n import t
 from output_policy import OutputPolicy
 from presets import SettingsStore
 from process_control import stop_process
-from summary_dialog import show_summary
 from ui import theme
 from ui.formats import batch_output_root
+from ui.summary_dialog import show_summary
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 
 class BatchCancelled(Exception):
     """Se solicitó cancelar mientras se convertía un archivo."""
+
+
+@dataclass(frozen=True, slots=True)
+class BatchRequest:
+    source_root: Path
+    files: tuple[Path, ...] | None
+    output_format: str
+    quality: int
+    recursive: bool
+    options: dict[str, object]
+    destination_parent: Path | None
+
+
+@dataclass(frozen=True, slots=True)
+class FinishedBatch:
+    summary: BatchSummary
+    destination: Path
+    report: Path | None
+    request: BatchRequest | None
+
+    @property
+    def failed_sources(self) -> tuple[Path, ...]:
+        return tuple(
+            item.source_path
+            for item in self.summary.results
+            if item.status is ResultStatus.FAILED
+        )
 
 
 class ConverterPanel(ttk.Frame):
@@ -84,6 +111,9 @@ class ConverterPanel(ttk.Frame):
         self.batch_started = 0.0
         self.files_discovered = 0
         self.last_summary: BatchSummary | None = None
+        self.finished_batch: FinishedBatch | None = None
+        self._active_request: BatchRequest | None = None
+        self._summary_window = None
         self.settings_store = SettingsStore()
         self.output_policy = StringVar(value=self.settings_store.load_output_policy())
         self.normalize_filenames = BooleanVar(
@@ -329,6 +359,13 @@ class ConverterPanel(ttk.Frame):
             style="Accent.TButton",
         )
         self.convert_button.grid(row=0, column=1)
+        self.results_button = ttk.Button(
+            actions,
+            text=t("ui.button.last_results"),
+            command=self.open_last_results,
+        )
+        self.results_button.grid(row=0, column=2, padx=(8, 0))
+        self.results_button.grid_remove()
 
     def reflow(self, compact: bool) -> None:
         if self.compact == compact:
@@ -499,7 +536,22 @@ class ConverterPanel(ttk.Frame):
             )
             return
 
-        options = self.conversion_options()
+        self._start_batch(
+            BatchRequest(
+                source_root,
+                tuple(files) if files is not None else None,
+                self.output_format.get(),
+                self.quality.get(),
+                self.recursive.get(),
+                self.conversion_options(),
+                self.destination_parent,
+            )
+        )
+
+    def _start_batch(self, request: BatchRequest) -> None:
+        self.close_results()
+        self._active_request = request
+        options = request.options.copy()
         self.cancel_event.clear()
         self.batch_started = time.monotonic()
         self.batch_started_at = datetime.now(timezone.utc)
@@ -510,26 +562,46 @@ class ConverterPanel(ttk.Frame):
         self.status.set(t("ui.status.discovering"))
         self.report_enabled = bool(options.get("generate_report", False))
         self.report_absolute = bool(options.get("report_absolute_paths", False))
-        self.report_source_root = source_root
-        self.report_output_format = self.output_format.get()
+        self.report_source_root = request.source_root
+        self.report_output_format = request.output_format
         self.report_settings = {
             **options,
-            "quality": self.quality.get(),
-            "recursive": self.recursive.get(),
+            "quality": request.quality,
+            "recursive": request.recursive,
         }
-        options["destination_parent"] = self.destination_parent
+        options["destination_parent"] = request.destination_parent
         threading.Thread(
             target=self._run_batch,
             args=(
-                source_root,
-                files,
-                self.output_format.get(),
-                self.quality.get(),
-                self.recursive.get(),
+                request.source_root,
+                list(request.files) if request.files is not None else None,
+                request.output_format,
+                request.quality,
+                request.recursive,
                 options,
             ),
             daemon=True,
         ).start()
+
+    def retry_failed(self) -> bool:
+        batch = self.finished_batch
+        if self.busy or self.closing or batch is None or batch.request is None:
+            return False
+        files = batch.failed_sources
+        if not files:
+            return False
+        self._start_batch(
+            replace(
+                batch.request,
+                files=files,
+                recursive=False,
+                options={
+                    **batch.request.options,
+                    "output_policy": OutputPolicy.UNIQUE.value,
+                },
+            )
+        )
+        return True
 
     def _batch_sources(self) -> tuple[Path, list[Path] | None]:
         selected = self.selection.get()
@@ -569,6 +641,8 @@ class ConverterPanel(ttk.Frame):
         options: dict[str, object],
     ) -> None:
         discovery_errors: list[str] = []
+        if is_link(source_root):
+            raise UserFacingError(t("discovery.unsafe_path"))
         destination = batch_output_root(source_root, output_format, options)
         if destination == source_root or destination in source_root.parents:
             raise UserFacingError(t("ui.error.destination_contains_source"))
@@ -674,11 +748,41 @@ class ConverterPanel(ttk.Frame):
             )
         )
         self.cancel_button.configure(state="normal" if busy else "disabled")
+        self.results_button.configure(state=state)
         self.policy_selector.configure(state="disabled" if busy else "readonly")
         self.normalize_check.configure(state=state)
         self.report_check.configure(state=state)
         self.report_path_selector.configure(
             state="readonly" if not busy and self.generate_report.get() else "disabled"
+        )
+
+    def restore_finished_batch(self, batch: FinishedBatch | None) -> None:
+        self.finished_batch = batch
+        self.last_summary = batch.summary if batch is not None else None
+        if batch is not None:
+            self.results_button.grid()
+
+    def close_results(self) -> None:
+        if self._summary_window is not None and self._summary_window.winfo_exists():
+            self._summary_window.destroy()
+        self._summary_window = None
+
+    def open_last_results(self) -> None:
+        batch = self.finished_batch
+        if batch is None or self.closing:
+            return
+        if self._summary_window is not None and self._summary_window.winfo_exists():
+            self._summary_window.lift()
+            self._summary_window.focus_set()
+            return
+        request = batch.request
+        self._summary_window = show_summary(
+            self.root,
+            batch.summary,
+            batch.destination,
+            batch.report,
+            source_root=request.source_root if request else None,
+            retry=self.retry_failed if request and batch.failed_sources else None,
         )
 
     def checksum_for_report(
@@ -750,7 +854,15 @@ class ConverterPanel(ttk.Frame):
     def show_results(
         self, destination: Path, summary: BatchSummary, generated_report: Path | None
     ) -> None:
-        self.last_summary = summary
+        self.close_results()
+        self.restore_finished_batch(
+            FinishedBatch(
+                summary,
+                destination,
+                generated_report,
+                self._active_request,
+            )
+        )
         self.set_busy(False)
         self.status.set(
             t("ui.status.cancelled", converted=summary.converted)
@@ -788,12 +900,7 @@ class ConverterPanel(ttk.Frame):
             logger.warning("batch_warning message=%s", warning)
         if getattr(self, "closing", False):
             return
-        if summary.operation_warnings:
-            messagebox.showwarning(
-                t("ui.dialog.report_failed_title"),
-                "\n".join(summary.operation_warnings),
-            )
-        show_summary(self.root, summary, destination, generated_report)
+        self.open_last_results()
 
     def fail(self, detail: str) -> None:
         logging.getLogger(__name__).error("batch_aborted detail=%s", detail)

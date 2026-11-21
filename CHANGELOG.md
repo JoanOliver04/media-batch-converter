@@ -9,6 +9,7 @@ All notable changes are documented here. This project follows [Semantic Versioni
 - Multi-file selection, a configurable output parent and a shortcut to the output folder in the summary.
 - Responsive conversion controls with a persistent action bar, progress within both audio and video files, and keyboard focus that scrolls into view.
 - Configurable FFmpeg executable for source and packaged runs.
+- Latest batch results can be reopened on each tab, with paginated file details, status filters and safe retries for failed files.
 
 ### Fixed
 
