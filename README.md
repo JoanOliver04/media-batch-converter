@@ -1,10 +1,28 @@
 # Media Batch Converter
 
-Desktop application for converting and optimizing images, audio, video, and documents individually or in batches. It is built with Python, Tkinter, Pillow, and FFmpeg, with an optional LibreOffice engine for high-fidelity office files.
+Convert and optimize images, audio, video, and documents on your desktop. Process a folder of game assets, keep the originals, and review the space saved for each batch.
 
-[Quick start](#quick-usage) · [Compress game assets](#compress-game-assets) · [Supported formats](#supported-formats) · [Run from source](#run-from-source)
+[Windows download](#download-and-install-on-windows) · [Screenshots](#screenshots) · [Quick start](#quick-usage) · [Compress game assets](#compress-game-assets) · [Supported formats](#supported-formats) · [Run from source](#run-from-source)
+
+## Download and install on Windows
+
+**Media Batch Converter 0.3.0 for Windows x64** · [Download ZIP](https://github.com/JoanOliver04/media-batch-converter/releases/download/v0.3.0/MediaBatchConverter-0.3.0-windows-x64.zip) · [SHA-256](https://github.com/JoanOliver04/media-batch-converter/releases/download/v0.3.0/MediaBatchConverter-0.3.0-windows-x64.zip.sha256) · [Release notes](https://github.com/JoanOliver04/media-batch-converter/releases/tag/v0.3.0)
+
+1. Compare the checksum with the result of `Get-FileHash -Algorithm SHA256 .\MediaBatchConverter-0.3.0-windows-x64.zip` in PowerShell.
+2. Extract the complete ZIP and open `MediaBatchConverter.exe`. Keep the `_internal` folder beside it. The portable executable is unsigned, so Windows may show a reputation warning.
+3. Images and documents work immediately. For audio and video, download a [Windows FFmpeg build](https://ffmpeg.org/download.html#build-windows). Put its `bin\ffmpeg.exe` in an `ffmpeg` folder beside the app and restart. An installation on `PATH` or an absolute `FFMPEG_PATH` also works. The **Diagnostics** tab shows which executable is active.
+
+To create a desktop shortcut, right-click the executable and choose **Show more options → Send to → Desktop (create shortcut)**.
 
 ## Screenshots
+
+### Review the space each batch saved
+
+This sample PNG batch used three synthetic files. Two saved space and one was skipped because the encoded candidate was the same size.
+
+![Batch overview showing two converted files, one skipped file, and measured space savings](docs/screenshots/batch-results.png)
+
+![Per-file results showing the original and attempted sizes of an unchanged PNG](docs/screenshots/batch-file-details.png)
 
 ### Image conversion
 
@@ -53,22 +71,6 @@ Desktop application for converting and optimizing images, audio, video, and docu
 | Files | PDF, DOCX, ODT, RTF, TXT, Markdown, HTML, XLSX, CSV, PPTX; DOC/XLS/PPT/ODP through LibreOffice |
 
 Exact codec availability depends on the Pillow and FFmpeg builds in use. Transparency is retained for compatible image formats; JPEG uses a white background. Animated output is runtime-probed because codec support varies.
-
-## Download and install on Windows
-
-Download the Windows x64 ZIP from the [latest GitHub release](https://github.com/JoanOliver04/media-batch-converter/releases/latest), compare its SHA-256 with the accompanying `.sha256` file, then extract the complete folder and run the executable.
-
-```text
-MediaBatchConverter\MediaBatchConverter.exe
-```
-
-Keep the executable and the `_internal` folder together. Windows may show a reputation warning for the unsigned build.
-
-Images and documents are available immediately. For audio and video, download a Windows build from the [FFmpeg download page](https://ffmpeg.org/download.html#build-windows). Copy its `bin\ffmpeg.exe` into an `ffmpeg` folder beside `MediaBatchConverter.exe` and restart the app. An existing FFmpeg installation on `PATH` or an absolute `FFMPEG_PATH` also works. Check the **Diagnostics** tab to see which executable is active.
-
-To put the app on your desktop, right-click `MediaBatchConverter.exe` and choose **Show more options → Send to → Desktop (create shortcut)**. The shortcut uses the app icon and points to the extracted folder.
-
-The Windows build runs as a portable app. The application does not install dependencies or run `pip` automatically.
 
 ## Quick usage
 
@@ -132,8 +134,9 @@ The images above are generated, not taken by hand:
 python tools/screenshot.py --all
 ```
 
-The tool builds the application in-process, so the tab, language and preset are
-chosen directly rather than by clicking, and every run produces the same image.
+The tool opens the app with the selected tab, language, and preset. It
+regenerates the four conversion tab screenshots. The two batch results
+screenshots were captured after running the same sample PNG batch.
 It captures with `PrintWindow`, which asks the window to draw itself into an
 offscreen bitmap: nothing else on the desktop can end up in the picture and the
 window does not need to be in front. Settings are redirected to a temporary
