@@ -4,6 +4,12 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 ## Unreleased
 
+### Added
+
+- Multi-file selection, a configurable output parent and a shortcut to the output folder in the summary.
+- Responsive conversion controls with a persistent action bar, progress within both audio and video files, and keyboard focus that scrolls into view.
+- Configurable FFmpeg executable for source and packaged runs.
+
 ### Fixed
 
 - Image, audio and video status now follows the selected language during conversion.
@@ -11,18 +17,21 @@ All notable changes are documented here. This project follows [Semantic Versioni
 - Windows reserved device names (`CON`, `NUL`, …) are sanitized even when filename normalization is off.
 - Directory junctions are no longer walked during recursive discovery.
 - Closing the window while a batch runs asks for confirmation and cancels the encoder.
-- Cancel now terminates FFmpeg and then kills it if it ignores the first signal; video probes honor cancel.
+- Cancel terminates the active FFmpeg process, then kills it if it ignores the first signal.
 - LibreOffice conversions kill the `soffice.bin` tree, keep HTML sidecar files, and prefer the output whose stem matches the source.
 - Embedded decompression bombs are skipped instead of aborting the whole document.
 - Multi-table documents with a title no longer crash when writing XLSX.
 - PPTX pictures are read and written by the built-in engine.
-- Video fill/stretch snap odd sizes to even dimensions required by `yuv420p`.
-- JSON reports use `os.replace`, so they work on FAT/exFAT and some cloud folders.
-- Empty `convertidos_*` trees left by a failed or cancelled batch are removed for every media type.
+- Video fit, fill and stretch use even dimensions for `yuv420p`, and AVI uses the MPEG-4 quality scale.
+- Empty input no longer selects the working directory. Language switching preserves the active source and destination.
+- New outputs and reports preserve files written in parallel. Frame exports finish staging before replacing an earlier export.
+- Cleanup only removes empty directories created during the batch.
 
 ### Changed
 
-- The video Max MB field is a hard FFmpeg `-fs` cap.
+- The video Max MiB field is verified against the actual encoded size before publishing.
+- Audio and video progress use one FFmpeg invocation per file, and batch output names are indexed per directory.
+- Upgraded Pillow, pypdf and ReportLab, restricted decoding to supported formats, and capped memory for preserved animations.
 - Resize targets are limited to 16 384 px per side.
 - Animations with more than 500 frames must use First frame only.
 - Spreadsheet exports neutralize formula-like cells.

@@ -16,6 +16,7 @@ from typing import Any, BinaryIO
 from conversion_results import BatchSummary, FileResult
 from i18n import t
 from image_validation import ImageWarning
+from output_policy import publish_new_file
 from version import APP_VERSION
 
 SCHEMA_VERSION = 1
@@ -218,14 +219,11 @@ def write_report_atomic(path: Path, report: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
-        with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+        with temporary.open("x", encoding="utf-8", newline="\n") as stream:
             json.dump(report, stream, ensure_ascii=False, indent=2)
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    except Exception:
-        temporary.unlink(missing_ok=True)
-        raise
+        publish_new_file(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)

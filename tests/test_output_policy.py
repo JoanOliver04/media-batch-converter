@@ -44,6 +44,17 @@ class OutputPolicyTests(unittest.TestCase):
         self.assertEqual(self.target.read_bytes(), b"new")
         self.assertFalse(plan.temporary.exists())
 
+    def test_publish_new_keeps_file_created_after_planning(self) -> None:
+        with_unique = plan_output(self.source, self.target, OutputPolicy.UNIQUE)
+        with_unique.temporary.write_bytes(b"converted")
+        self.target.write_bytes(b"concurrent")
+        try:
+            with self.assertRaises(FileExistsError):
+                commit_output(with_unique)
+            self.assertEqual(self.target.read_bytes(), b"concurrent")
+        finally:
+            cleanup_temporary(with_unique)
+
     def test_failed_overwrite_preserves_old_destination(self) -> None:
         self.target.write_bytes(b"old")
         plan = plan_output(self.source, self.target, OutputPolicy.OVERWRITE)

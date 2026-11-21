@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 import runtime_environment
 from runtime_environment import (
     FFMPEG_SOURCE_BUNDLED,
+    FFMPEG_SOURCE_CONFIGURED,
     FFMPEG_SOURCE_IMAGEIO,
     FFMPEG_SOURCE_SYSTEM,
     FFmpegInfo,
@@ -33,6 +34,19 @@ def find_notebook(widget) -> ttk.Notebook:
 
 
 class RuntimeEnvironmentTests(unittest.TestCase):
+    def test_explicit_absolute_ffmpeg_path_has_priority(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary).resolve() / "ffmpeg.exe"
+            executable.touch()
+            with (
+                patch.dict(os.environ, {"FFMPEG_PATH": str(executable)}),
+                patch("runtime_environment._ffmpeg_version", return_value="ffmpeg 9.1"),
+            ):
+                self.assertEqual(
+                    resolve_ffmpeg(),
+                    FFmpegInfo(executable, FFMPEG_SOURCE_CONFIGURED, "ffmpeg 9.1"),
+                )
+
     def test_dependency_check_reports_distribution_names(self) -> None:
         real_import = runtime_environment.importlib.import_module
 

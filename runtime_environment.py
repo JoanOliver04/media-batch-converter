@@ -30,6 +30,7 @@ DOCUMENT_PYTHON_DEPENDENCIES = (
 FFMPEG_SOURCE_BUNDLED = "bundled"
 FFMPEG_SOURCE_SYSTEM = "system"
 FFMPEG_SOURCE_IMAGEIO = "imageio-ffmpeg"
+FFMPEG_SOURCE_CONFIGURED = "configured"
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +98,11 @@ def _ffmpeg_version(executable: Path) -> str | None:
 
 
 def resolve_ffmpeg() -> FFmpegInfo | None:
+    configured = os.environ.get("FFMPEG_PATH")
+    if configured:
+        path = Path(configured)
+        if path.is_absolute() and path.is_file() and (version := _ffmpeg_version(path)):
+            return FFmpegInfo(path.resolve(), FFMPEG_SOURCE_CONFIGURED, version)
     candidates: list[tuple[Path, str]] = []
     bundled_directories = (
         application_directory() / "ffmpeg",
@@ -141,6 +147,7 @@ def ffmpeg_source_label(source: str) -> str:
         FFMPEG_SOURCE_BUNDLED: t("diagnostics.source.bundled"),
         FFMPEG_SOURCE_SYSTEM: t("diagnostics.source.system"),
         FFMPEG_SOURCE_IMAGEIO: t("diagnostics.source.imageio"),
+        FFMPEG_SOURCE_CONFIGURED: t("diagnostics.source.configured"),
     }.get(source, source)
 
 

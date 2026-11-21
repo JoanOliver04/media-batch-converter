@@ -20,14 +20,14 @@ PANEL = "#1F242D"  # superficies elevadas
 RAISED = "#272E39"  # campos y controles
 LINE = "#333C49"  # filetes y bordes
 TEXT = "#E6E9EF"  # texto principal
-MUTED = "#8A94A6"  # texto de apoyo
+MUTED = "#A5AEC0"  # texto de apoyo
 SIGNAL = "#E0A33E"  # acento: ruta activa
 SIGNAL_DIM = "#B27F2C"  # acento pulsado
 VERIFY = "#4FB3A0"  # verificado
 
 # --- Tipografía -------------------------------------------------------------
-FONT_TITLE = ("Segoe UI Semibold", 19)
-FONT_WORDMARK = ("Segoe UI Semibold", 11)
+FONT_TITLE = ("Segoe UI Semibold", 22)
+FONT_WORDMARK = ("Segoe UI Semibold", 13)
 FONT_BODY = ("Segoe UI", 10)
 FONT_SMALL = ("Segoe UI", 9)
 #: Consolas para datos y para los rótulos técnicos de cada bloque.
@@ -114,6 +114,8 @@ def apply_theme(root: Tk) -> ttk.Style:
         ],
         foreground=[("disabled", MUTED)],
         bordercolor=[("disabled", LINE)],
+        lightcolor=[("disabled", RAISED)],
+        darkcolor=[("disabled", RAISED)],
     )
 
     # --- Campos ---
@@ -160,9 +162,11 @@ def apply_theme(root: Tk) -> ttk.Style:
     )
     style.map(
         "TCheckbutton",
-        indicatorbackground=[("selected", SIGNAL), ("disabled", PANEL)],
-        upperbordercolor=[("selected", SIGNAL), ("disabled", LINE)],
-        lowerbordercolor=[("selected", SIGNAL), ("disabled", LINE)],
+        background=[("disabled", PANEL), ("active", PANEL)],
+        indicatorbackground=[("disabled", RAISED), ("selected", SIGNAL)],
+        indicatorforeground=[("disabled", MUTED)],
+        upperbordercolor=[("disabled", LINE), ("selected", SIGNAL)],
+        lowerbordercolor=[("disabled", LINE), ("selected", SIGNAL)],
         foreground=[("disabled", MUTED)],
     )
     style.configure(
@@ -212,7 +216,10 @@ def apply_theme(root: Tk) -> ttk.Style:
         relief="solid",
     )
     style.configure(
-        "TLabelframe.Label", background=PANEL, foreground=SIGNAL, font=FONT_EYEBROW
+        "TLabelframe.Label",
+        background=PANEL,
+        foreground=TEXT,
+        font=("Segoe UI Semibold", 10),
     )
 
     # --- Pestañas: control segmentado, la activa se funde con el panel ---
@@ -233,7 +240,7 @@ def apply_theme(root: Tk) -> ttk.Style:
         lightcolor=SURFACE,
         darkcolor=SURFACE,
         borderwidth=0,
-        padding=(18, 9),
+        padding=(12, 9),
         font=FONT_BODY,
     )
     style.map(

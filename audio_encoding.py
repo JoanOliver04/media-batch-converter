@@ -8,7 +8,7 @@ from pathlib import Path
 
 from i18n import t
 from presets import AudioSettings
-from process_control import text_kwargs
+from process_control import ffmpeg_transcode_args, text_kwargs
 
 CONTAINER_CODECS = {
     "M4A": {"aac"},
@@ -64,11 +64,7 @@ def build_audio_command(
 ) -> list[str]:
     return [
         ffmpeg,
-        "-y",
-        "-i",
-        str(source),
-        "-map_metadata",
-        "0",
+        *ffmpeg_transcode_args(source),
         "-vn",
         *build_audio_args(container, settings),
         str(output),

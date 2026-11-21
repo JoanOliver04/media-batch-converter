@@ -9,13 +9,25 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageCms, UnidentifiedImageError
+from PIL import ExifTags, Image, ImageCms, UnidentifiedImageError
 
 from animation_handling import animation_supported
 from i18n import t
 
 EXTREME_DIMENSION = 16_000
 MEMORY_PRESSURE_PIXELS = 80_000_000
+IMAGE_INPUT_FORMATS = ("BMP", "GIF", "ICO", "JPEG", "PNG", "TIFF", "WEBP")
+
+
+def open_supported_image(source: Path) -> Image.Image:
+    return Image.open(source, formats=IMAGE_INPUT_FORMATS)
+
+
+def oriented_dimensions(image: Image.Image) -> tuple[int, int]:
+    width, height = image.size
+    if image.getexif().get(ExifTags.Base.Orientation) in (5, 6, 7, 8):
+        return height, width
+    return width, height
 
 
 class WarningSeverity(StrEnum):
@@ -40,6 +52,7 @@ class ImageWarningCode(StrEnum):
     ANIMATED_DESTINATION_UNSUPPORTED = "ANIMATED_DESTINATION_UNSUPPORTED"
     FRAMES_EXTRACTED = "FRAMES_EXTRACTED"
     ANIMATION_TOO_MANY_FRAMES = "ANIMATION_TOO_MANY_FRAMES"
+    ANIMATION_MEMORY_LIMIT = "ANIMATION_MEMORY_LIMIT"
     OUTPUT_SIZE_REDUCTION_EXTREME = "OUTPUT_SIZE_REDUCTION_EXTREME"
     OUTPUT_SIZE_INCREASED = "OUTPUT_SIZE_INCREASED"
     METADATA_DROPPED = "METADATA_DROPPED"
@@ -254,7 +267,7 @@ def validate_image(source: Path, target_format: str) -> list[ImageWarning]:
     try:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", Image.DecompressionBombWarning)
-            with Image.open(source) as probe:
+            with open_supported_image(source) as probe:
                 probe.verify()
             for item in caught:
                 if issubclass(item.category, Image.DecompressionBombWarning):
@@ -268,7 +281,7 @@ def validate_image(source: Path, target_format: str) -> list[ImageWarning]:
                     )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", Image.DecompressionBombWarning)
-            image = Image.open(source)
+            image = open_supported_image(source)
         with image:
             has_alpha, meaningful = _has_meaningful_transparency(image)
             icc = image.info.get("icc_profile")

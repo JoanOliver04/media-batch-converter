@@ -31,9 +31,14 @@ class VideoPanel(FFmpegPanel):
         "AVI": ("mpeg4", "libmp3lame"),
     }
 
-    def __init__(self, parent, root: Tk) -> None:
+    def __init__(self, parent, root: Tk, footer_parent=None) -> None:
         super().__init__(
-            parent, root, t("ui.title.video"), VIDEO_EXTENSIONS, VIDEO_FORMATS
+            parent,
+            root,
+            t("ui.title.video"),
+            VIDEO_EXTENSIONS,
+            VIDEO_FORMATS,
+            footer_parent,
         )
         self._applying_video_preset = False
         self.video_preset_display = StringVar(value=t("ui.preset.custom"))
@@ -74,88 +79,80 @@ class VideoPanel(FFmpegPanel):
             "<<ComboboxSelected>>", self.apply_selected_video_preset
         )
 
-        for row in range(6, 3, -1):
-            for widget in self.grid_slaves(row=row):
-                widget.grid_configure(row=row + 1)
-        self.video_advanced = ttk.LabelFrame(
-            self, text=t("ui.frame.video"), padding=(10, 7)
+        form = ttk.LabelFrame(
+            self.encoding_column, text=t("ui.frame.video"), padding=12
         )
-        self.video_advanced.grid(row=4, column=0, sticky="ew", pady=(0, 10))
-        ttk.Label(self.video_advanced, text=t("ui.label.resolution")).grid(
-            row=0, column=0
-        )
+        self.video_advanced = form
+        form.grid(row=1, column=0, sticky="ew", pady=(0, 12))
+        form.columnconfigure(1, weight=1)
+        form.columnconfigure(3, weight=1)
+
+        dimensions = ttk.Frame(form)
         self.video_width_entry = ttk.Entry(
-            self.video_advanced, textvariable=self.video_width, width=6
+            dimensions, textvariable=self.video_width, width=6
         )
-        self.video_width_entry.grid(row=0, column=1, padx=(6, 2))
-        ttk.Label(self.video_advanced, text="×").grid(row=0, column=2)
+        self.video_width_entry.pack(side="left")
+        ttk.Label(dimensions, text="×").pack(side="left", padx=4)
         self.video_height_entry = ttk.Entry(
-            self.video_advanced, textvariable=self.video_height, width=6
+            dimensions, textvariable=self.video_height, width=6
         )
-        self.video_height_entry.grid(row=0, column=3, padx=(2, 14))
-        ttk.Label(self.video_advanced, text=t("ui.label.fps_max")).grid(row=0, column=4)
-        self.video_fps_entry = ttk.Entry(
-            self.video_advanced, textvariable=self.video_fps, width=5
-        )
-        self.video_fps_entry.grid(row=0, column=5, padx=(6, 14))
+        self.video_height_entry.pack(side="left")
+
         self.video_aspect_selector = ttk.Combobox(
-            self.video_advanced,
+            form,
             textvariable=self.video_aspect,
             values=tuple(self._aspect_by_display),
             state="readonly",
-            width=24,
-        )
-        self.video_aspect_selector.grid(row=0, column=6)
-
-        ttk.Label(self.video_advanced, text=t("ui.label.video_codec")).grid(
-            row=1, column=0, pady=(7, 0)
+            width=20,
         )
         self.video_codec_selector = ttk.Combobox(
-            self.video_advanced,
+            form,
             textvariable=self.video_codec,
             values=("libx264", "libvpx-vp9", "mpeg4"),
             state="readonly",
             width=12,
         )
-        self.video_codec_selector.grid(row=1, column=1, columnspan=2, pady=(7, 0))
-        ttk.Label(self.video_advanced, text=t("ui.label.audio_codec")).grid(
-            row=1, column=3, pady=(7, 0)
-        )
         self.video_audio_selector = ttk.Combobox(
-            self.video_advanced,
+            form,
             textvariable=self.video_audio_codec,
             values=("aac", "libopus", "libmp3lame"),
             state="readonly",
             width=12,
         )
-        self.video_audio_selector.grid(row=1, column=4, columnspan=2, pady=(7, 0))
+        self.video_fps_entry = ttk.Entry(form, textvariable=self.video_fps, width=7)
+        self.video_max_size_entry = ttk.Entry(
+            form, textvariable=self.video_max_size, width=7
+        )
+        self.video_background_entry = ttk.Entry(
+            form, textvariable=self.video_background, width=10
+        )
+
+        for row, column, label, field in (
+            (0, 0, "ui.label.resolution", dimensions),
+            (0, 2, "ui.label.aspect", self.video_aspect_selector),
+            (1, 0, "ui.label.video_codec", self.video_codec_selector),
+            (1, 2, "ui.label.audio_codec", self.video_audio_selector),
+            (2, 0, "ui.label.fps_max", self.video_fps_entry),
+            (2, 2, "ui.label.max_mb", self.video_max_size_entry),
+            (3, 0, "ui.label.band_color", self.video_background_entry),
+        ):
+            ttk.Label(form, text=t(label)).grid(
+                row=row, column=column, sticky="w", padx=(0, 8), pady=4
+            )
+            field.grid(row=row, column=column + 1, sticky="w", padx=(0, 12), pady=4)
         self.video_audio_check = ttk.Checkbutton(
-            self.video_advanced,
+            form,
             text=t("ui.check.remove_audio"),
             variable=self.video_remove_audio,
             command=self.video_settings_changed,
         )
-        self.video_audio_check.grid(row=1, column=6, pady=(7, 0), sticky="w")
-        ttk.Label(self.video_advanced, text=t("ui.label.band_color")).grid(
-            row=2, column=0, pady=(7, 0)
-        )
-        self.video_background_entry = ttk.Entry(
-            self.video_advanced, textvariable=self.video_background, width=10
-        )
-        self.video_background_entry.grid(row=2, column=1, columnspan=2, pady=(7, 0))
-        ttk.Label(self.video_advanced, text=t("ui.label.max_mb")).grid(
-            row=2, column=3, columnspan=2, pady=(7, 0)
-        )
-        self.video_max_size_entry = ttk.Entry(
-            self.video_advanced, textvariable=self.video_max_size, width=7
-        )
-        self.video_max_size_entry.grid(row=2, column=5, pady=(7, 0))
+        self.video_audio_check.grid(row=3, column=2, columnspan=2, sticky="w", pady=4)
         ttk.Label(
-            self.video_advanced,
+            form,
             textvariable=self.video_size_guidance,
-            wraplength=650,
+            wraplength=510,
             style="Muted.TLabel",
-        ).grid(row=3, column=0, columnspan=7, pady=(7, 0), sticky="w")
+        ).grid(row=4, column=0, columnspan=4, pady=(7, 0), sticky="w")
 
         for variable in (
             self.output_format,
@@ -270,8 +267,6 @@ class VideoPanel(FFmpegPanel):
         try:
             settings = self.current_video_settings()
             validate_video_settings(self.output_format.get(), settings)
-            if settings.max_size_mb is not None and settings.max_size_mb <= 0:
-                return t("ui.validate.max_size_positive")
         except (KeyError, ValueError) as error:
             return str(error)
         return None
@@ -341,4 +336,5 @@ class VideoPanel(FFmpegPanel):
                 if settings.remove_audio
                 else (settings.video_codec, settings.audio_codec)
             ),
+            output_limit_bytes=settings.max_size_bytes,
         )

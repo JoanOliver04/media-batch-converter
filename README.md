@@ -22,7 +22,8 @@ Desktop application for converting and optimizing images, audio, video, and docu
 
 ## Features
 
-- Convert one file or entire folders, with optional recursive discovery and preserved subfolder structure.
+- Convert selected files or entire folders, with optional recursive discovery and preserved subfolder structure.
+- Choose a separate output parent folder and open the result directly from the batch summary.
 - Convert common image, audio, video, and document formats from separate tabs.
 - Choose WebP automatic, lossy, or lossless encoding.
 - Apply image, audio, video, and file presets, then refine settings manually.
@@ -65,13 +66,13 @@ No installer is currently provided. The application does not install dependencie
 ## Quick usage
 
 1. Open the Images, Audio, Video, or Files tab.
-2. Select one file or a source folder.
+2. Select one or more files from the same folder, or select a source folder.
 3. For folders, choose whether to include subfolders.
 4. Select an output format and preset or manual settings.
-5. Choose the existing-file policy and optional report settings.
+5. Review the output folder and choose the existing-file policy and optional report settings.
 6. Start conversion and review the final summary.
 
-Outputs are created beside the sources in a `convertidos_<format>` directory. Existing `converted_*` and `convertidos_*` directories, symbolic links, and Windows directory junctions are excluded from recursive discovery. An empty output tree left by a failed or cancelled batch is removed.
+Outputs are created in a `convertidos_<format>` folder beside the source by default. **Choose folder** uses a different parent and keeps the format-specific subfolder. Existing `converted_*` and `convertidos_*` directories, symbolic links, and Windows directory junctions are excluded from recursive discovery. The app removes empty directories created by unsuccessful conversions.
 
 ### Examples
 
@@ -85,14 +86,13 @@ Outputs are created beside the sources in a `convertidos_<format>` directory. Ex
 
 ## Interface
 
-The interface is a dark graphite console with a single amber accent reserved for
-the active path: the primary action, the selected tab, progress and focus. A
-muted teal marks verified results. Numbers — quality, sizes, dimensions — are set
-in a monospaced face so they line up and can be compared at a glance.
+The conversion workspace groups source selection, encoding and output settings.
+The output column moves below the encoding controls in narrow windows. Progress,
+Cancel and Start conversion remain visible while you scroll. Use Ctrl+Tab to
+switch between tabs, and Tab to reach controls inside the selected workspace.
 
-Everything visual is defined in `ui/theme.py`. Changing the palette there
-restyles the whole application, including the summary window and the
-diagnostics console.
+The palette and typography in `ui/theme.py` apply across the conversion tabs,
+summary window and diagnostics console.
 
 ## Screenshots
 
@@ -133,10 +133,10 @@ error messages and the text inside JSON reports. The stable `code` field of each
 report warning does not change with the language, so reports stay machine-readable
 either way.
 
-Switching rebuilds the tabs, so the currently selected file or folder is cleared;
-presets and output policy are preserved because they are persisted. The selector
-is refused while a conversion is running. Closing the window during a batch asks
-for confirmation and cancels the encoder.
+Switching keeps the active tab, selected sources, recursive option and chosen
+output parent. Presets and output policies are restored from preferences. Finish
+or cancel an active conversion before switching languages. When closing during a
+batch, the app waits for cancelled work to clean up.
 
 To add another language, copy `locales/es.py`, translate the values, and register
 the module in `i18n.py`. `tests/test_i18n.py` fails if a catalogue is missing a
@@ -160,7 +160,7 @@ Available modes preserve dimensions, limit width, limit height, fit within a box
 
 ### Animated images
 
-For animated sources, choose to preserve the animation, extract numbered frames, or keep the first frame. Preservation retains frame order, duration, loop, transparency, and disposal as far as Pillow and the destination codec allow. Unsupported animated destinations fail explicitly rather than silently discarding frames. Animations with more than 500 frames cannot be preserved or extracted in one go; use First frame only or split the file. Extracting frames follows the same existing-file policy as other outputs.
+For animated sources, choose to preserve the animation, extract numbered frames, or keep the first frame. Preservation retains frame order, duration, loop, transparency, and disposal as far as Pillow and the destination codec allow. The destination must support animation. Preservation also limits the total output pixels across frames to bound memory use. Animations with more than 500 frames require First frame only or a split source. A frame export is staged before replacing an earlier one. A folder with unrelated files can be preserved with **Keep both**.
 
 ## Document behavior
 
@@ -188,11 +188,12 @@ Optional reports record public settings, final resolved output paths, per-file s
 
 FFmpeg is resolved in this order:
 
-1. The packaged `ffmpeg` directory.
-2. The executable provided by `imageio-ffmpeg`.
-3. An `ffmpeg` command on `PATH`.
+1. The trusted executable at the absolute path in `FFMPEG_PATH`, if configured.
+2. The packaged `ffmpeg` directory.
+3. The executable provided by `imageio-ffmpeg`.
+4. An `ffmpeg` command on `PATH`.
 
-Images remain available when FFmpeg is missing; audio and video tabs are disabled. The Files tab stays available with the built-in engine; it is disabled only when the document libraries themselves are missing. The Diagnostics tab shows the selected FFmpeg provider, LibreOffice if present, and anonymized paths. FFmpeg and LibreOffice processes are cancellable: cancel terminates the encoder and kills it if it does not exit, including LibreOffice child processes. Partial temporary outputs are cleaned up. Fill and stretch video sizes are forced to even dimensions for `yuv420p`. An optional Max MB field is a hard FFmpeg write cap and may end the video early.
+Images and documents stay available when FFmpeg is missing. The Diagnostics tab shows the selected FFmpeg provider, LibreOffice if present, and anonymized paths. Audio and video conversion accepts local files through the supported media demuxers. FFmpeg reports progress for both media types, and cancellation cleans up staged outputs. Fitted, cropped and stretched video sizes are made even for `yuv420p`. The optional **Max MiB** may shorten the video. The app checks the output size before publishing the file.
 
 ## Run from source
 
@@ -224,7 +225,7 @@ The script creates an isolated `.build-venv`, installs pinned dependencies, runs
 dist\MediaBatchConverter\MediaBatchConverter.exe
 ```
 
-The build bundles the FFmpeg executable supplied by `imageio-ffmpeg`. See [Third-party notices](THIRD_PARTY_NOTICES.md) before redistribution.
+The build bundles the FFmpeg executable supplied by `imageio-ffmpeg` by default. To package a verified Windows build instead, set `MEDIA_BATCH_BUILD_FFMPEG` to its absolute executable path. If the executable's folder contains `LICENSE`, the build includes it with the binary. [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 ## Testing and quality checks
 
@@ -295,7 +296,7 @@ All processing is local. Files are not uploaded, and the application has no netw
 - Release binaries are not code-signed.
 - FFmpeg codec support and patent considerations vary by build and jurisdiction.
 - Metadata and ICC preservation depend on the selected format and are intentionally limited for some image outputs.
-- CRF video output cannot guarantee an exact final file size. The optional Max MB field is a hard write cap and may cut the video short.
+- CRF targets visual quality. The optional Max MiB field can shorten the video or reject a result that exceeds the selected size.
 - Animations longer than 500 frames cannot be preserved or extracted in a single conversion.
 - No installer or automatic updater is provided.
 

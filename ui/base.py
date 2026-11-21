@@ -20,8 +20,7 @@ from tkinter import (
     ttk,
 )
 
-from batch_processing import discover_files
-from process_control import stop_process
+from batch_processing import checked_output_root, discover_files, is_link
 from conversion_report import (
     HashCancelled,
     build_report,
@@ -30,13 +29,15 @@ from conversion_report import (
     write_report_atomic,
 )
 from conversion_results import BatchSummary, FileResult
-from error_handling import describe_error
+from error_handling import UserFacingError, describe_error
 from filename_normalization import output_filename
 from i18n import t
 from output_policy import OutputPolicy
 from presets import SettingsStore
+from process_control import stop_process
 from summary_dialog import show_summary
 from ui import theme
+from ui.formats import batch_output_root
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
@@ -46,7 +47,7 @@ class BatchCancelled(Exception):
 
 
 class ConverterPanel(ttk.Frame):
-    """Controles compartidos por los tres tipos de conversión."""
+    """Shared controls and batch lifecycle for the conversion tabs."""
 
     MEDIA_TYPE = "media"
     #: Ejemplo de renombrado; cada panel muestra el de su propio medio.
@@ -59,8 +60,9 @@ class ConverterPanel(ttk.Frame):
         title: str,
         extensions: set[str],
         formats: dict[str, object],
+        footer_parent=None,
     ) -> None:
-        super().__init__(parent, padding=24)
+        super().__init__(parent, padding=20)
         self.root, self.extensions, self.formats = root, extensions, formats
         self.selection, self.output_format = (
             StringVar(),
@@ -71,8 +73,13 @@ class ConverterPanel(ttk.Frame):
             StringVar(value=t("ui.status.select_prompt")),
         )
         self.recursive = BooleanVar(value=True)
+        self.selected_files: tuple[Path, ...] = ()
+        self.selection_display = StringVar(value=t("ui.source.empty"))
+        self.destination_parent: Path | None = None
+        self.destination_preview = StringVar(value=t("ui.destination.default"))
         self.cancel_event = threading.Event()
         self.busy = False
+        self.closing = False
         self.active_process: subprocess.Popen[str] | None = None
         self.batch_started = 0.0
         self.files_discovered = 0
@@ -82,7 +89,7 @@ class ConverterPanel(ttk.Frame):
         self.normalize_filenames = BooleanVar(
             value=self.settings_store.load_normalize_filenames()
         )
-        self.output_name_preview = StringVar(value=t(self.NAME_EXAMPLE_KEY))
+        self.output_name_preview = StringVar()
         self.generate_report = BooleanVar(
             value=self.settings_store.load_generate_report()
         )
@@ -109,33 +116,48 @@ class ConverterPanel(ttk.Frame):
         self.columnconfigure(0, weight=1)
 
         ttk.Label(self, text=title, style="Title.TLabel").grid(
-            row=0, column=0, sticky="w", pady=(0, 18)
+            row=0, column=0, columnspan=2, sticky="w", pady=(0, 12)
         )
-        selection_row = ttk.Frame(self)
-        selection_row.grid(row=1, column=0, sticky="ew")
+        selection_row = ttk.LabelFrame(self, text=t("ui.section.source"), padding=10)
+        selection_row.grid(row=1, column=0, columnspan=2, sticky="ew")
         selection_row.columnconfigure(0, weight=1)
-        ttk.Entry(selection_row, textvariable=self.selection, state="readonly").grid(
-            row=0, column=0, sticky="ew", padx=(0, 10)
-        )
+        ttk.Entry(
+            selection_row,
+            textvariable=self.selection_display,
+            state="readonly",
+            width=1,
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 12))
+        source_actions = ttk.Frame(selection_row)
+        source_actions.grid(row=0, column=1, sticky="w")
         self.file_button = ttk.Button(
-            selection_row, text=t("ui.button.select_file"), command=self.select_file
+            source_actions, text=t("ui.button.select_files"), command=self.select_file
         )
-        self.file_button.grid(row=0, column=1, padx=(0, 8))
+        self.file_button.grid(row=0, column=0, padx=(0, 8))
         self.folder_button = ttk.Button(
-            selection_row, text=t("ui.button.select_folder"), command=self.select_folder
+            source_actions,
+            text=t("ui.button.select_folder"),
+            command=self.select_folder,
         )
-        self.folder_button.grid(row=0, column=2)
+        self.folder_button.grid(row=0, column=1)
 
         self.recursive_check = ttk.Checkbutton(
-            self,
+            selection_row,
             text=t("ui.check.recursive"),
             variable=self.recursive,
         )
-        self.recursive_check.grid(row=2, column=0, sticky="w", pady=(14, 0))
+        self.recursive_check.grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(8, 0)
+        )
+        self.recursive_check.state(("disabled",))
 
-        options = ttk.Frame(self)
+        self.encoding_column = ttk.Frame(self)
+        self.encoding_column.grid(row=3, column=0, sticky="new", pady=(14, 0))
+        self.encoding_column.columnconfigure(0, weight=1)
+        options = ttk.LabelFrame(
+            self.encoding_column, text=t("ui.section.encoding"), padding=12
+        )
         self.options_frame = options
-        options.grid(row=3, column=0, sticky="ew", pady=16)
+        options.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         options.columnconfigure(3, weight=1)
         ttk.Label(options, text=t("ui.label.output_format")).grid(
             row=0, column=0, padx=(0, 10)
@@ -148,9 +170,8 @@ class ConverterPanel(ttk.Frame):
             width=10,
         )
         self.format_selector.grid(row=0, column=1, padx=(0, 22))
-        ttk.Label(options, text=t("ui.label.quality")).grid(
-            row=0, column=2, padx=(0, 10)
-        )
+        quality_label = ttk.Label(options, text=t("ui.label.quality"))
+        quality_label.grid(row=0, column=2, padx=(0, 10))
         # Scale clásico en vez de ttk: el trough de ttk.Scale ignora
         # `troughcolor` en clam y se queda con el canal claro por defecto,
         # que rompe el tema oscuro. El widget clásico sí es coloreable.
@@ -165,25 +186,53 @@ class ConverterPanel(ttk.Frame):
             troughcolor=theme.RAISED,
             background=theme.SIGNAL,
             activebackground=theme.SIGNAL_DIM,
-            highlightthickness=0,
+            highlightthickness=1,
+            highlightbackground=theme.PANEL,
+            highlightcolor=theme.SIGNAL,
             borderwidth=0,
             sliderrelief="flat",
             sliderlength=20,
             width=10,
         )
         self.slider.grid(row=0, column=3, sticky="ew")
-        ttk.Label(
+        quality_readout = ttk.Label(
             options,
             textvariable=self.quality,
             width=4,
             anchor="e",
             style="Readout.TLabel",
-        ).grid(row=0, column=4, padx=(8, 0))
-        ttk.Label(options, text=t("ui.label.on_existing")).grid(
-            row=2, column=0, padx=(0, 10), pady=(10, 0), sticky="w"
+        )
+        quality_readout.grid(row=0, column=4, padx=(8, 0))
+        self.quality_widgets = (quality_label, self.slider, quality_readout)
+        policy_box = ttk.LabelFrame(self, text=t("ui.section.destination"), padding=12)
+        self.policy_box = policy_box
+        policy_box.columnconfigure(0, weight=1)
+        ttk.Entry(
+            policy_box, textvariable=self.destination_preview, state="readonly", width=1
+        ).grid(row=0, column=0, sticky="ew")
+        destination_actions = ttk.Frame(policy_box)
+        destination_actions.grid(row=1, column=0, sticky="w", pady=(8, 10))
+        self.destination_button = ttk.Button(
+            destination_actions,
+            text=t("ui.button.change_destination"),
+            command=self.select_destination,
+        )
+        self.destination_button.grid(row=0, column=0, padx=(0, 8))
+        self.reset_destination_button = ttk.Button(
+            destination_actions,
+            text=t("ui.button.reset_destination"),
+            command=self.reset_destination,
+            state="disabled",
+        )
+        self.reset_destination_button.grid(row=0, column=1)
+        ttk.Label(policy_box, text=t("ui.label.on_existing")).grid(
+            row=2, column=0, sticky="w", pady=(4, 4)
         )
         self.policy_selector = ttk.Combobox(
-            options, values=tuple(self._policy_by_display), state="readonly", width=31
+            policy_box,
+            values=tuple(self._policy_by_display),
+            state="readonly",
+            width=24,
         )
         selected_policy_label = next(
             label
@@ -191,66 +240,84 @@ class ConverterPanel(ttk.Frame):
             if policy.value == self.output_policy.get()
         )
         self.policy_selector.set(selected_policy_label)
-        self.policy_selector.grid(
-            row=2, column=1, padx=(0, 16), pady=(10, 0), sticky="w"
-        )
+        self.policy_selector.grid(row=3, column=0, sticky="ew")
         ttk.Label(
-            options,
+            policy_box,
             textvariable=self.output_policy_help,
-            wraplength=390,
+            wraplength=244,
             style="Muted.TLabel",
-        ).grid(row=2, column=2, columnspan=3, pady=(10, 0), sticky="w")
+        ).grid(row=4, column=0, pady=(5, 0), sticky="w")
         self.policy_selector.bind("<<ComboboxSelected>>", self.output_policy_changed)
         self.output_policy_help.set(
             self._policy_help[OutputPolicy(self.output_policy.get())]
         )
         self.normalize_check = ttk.Checkbutton(
-            options,
+            policy_box,
             text=t("ui.check.normalize"),
             variable=self.normalize_filenames,
             command=self.normalize_filenames_changed,
         )
-        self.normalize_check.grid(
-            row=3, column=0, columnspan=2, pady=(10, 0), sticky="w"
-        )
+        self.normalize_check.grid(row=5, column=0, pady=(10, 0), sticky="w")
         ttk.Label(
-            options,
+            policy_box,
             textvariable=self.output_name_preview,
-            wraplength=470,
+            wraplength=244,
             style="Muted.TLabel",
-        ).grid(row=3, column=2, columnspan=3, pady=(10, 0), sticky="w")
-        self.output_format.trace_add(
-            "write", lambda *_args: self.update_output_name_preview()
-        )
+        ).grid(row=6, column=0, pady=(3, 0), sticky="w")
+        self.output_format.trace_add("write", self._output_format_changed)
+        self.selection.trace_add("write", self._selection_changed)
         self.report_check = ttk.Checkbutton(
-            options,
+            policy_box,
             text=t("ui.check.report"),
             variable=self.generate_report,
             command=self.report_settings_changed,
         )
-        self.report_check.grid(row=4, column=0, columnspan=2, pady=(10, 0), sticky="w")
-        ttk.Label(options, text=t("ui.label.report_paths")).grid(
-            row=4, column=2, pady=(10, 0), sticky="e"
+        self.report_check.grid(row=7, column=0, pady=(10, 0), sticky="w")
+        report_row = ttk.Frame(policy_box)
+        report_row.grid(row=8, column=0, sticky="w", pady=(4, 0))
+        ttk.Label(report_row, text=t("ui.label.report_paths")).pack(
+            side="left", padx=(0, 8)
         )
         self.report_path_selector = ttk.Combobox(
-            options,
+            report_row,
             textvariable=self.report_path_mode,
             values=(t("ui.report_paths.relative"), t("ui.report_paths.absolute")),
-            state="readonly",
+            state="readonly" if self.generate_report.get() else "disabled",
             width=12,
         )
-        self.report_path_selector.grid(row=4, column=3, pady=(10, 0), sticky="w")
+        self.report_path_selector.pack(side="left")
         self.report_path_selector.bind(
             "<<ComboboxSelected>>", self.report_settings_changed
         )
 
-        self.progress = ttk.Progressbar(self, mode="determinate")
-        self.progress.grid(row=4, column=0, sticky="ew", pady=(0, 10))
-        ttk.Label(
-            self, textvariable=self.status, wraplength=700, style="Muted.TLabel"
-        ).grid(row=5, column=0, sticky="w")
-        actions = ttk.Frame(self)
-        actions.grid(row=6, column=0, sticky="e", pady=(20, 0))
+        self.compact = False
+        self.reflow(True)
+        self._build_footer(footer_parent)
+        self._refresh_source_controls()
+        self._output_format_changed()
+
+    def _build_footer(self, footer_parent) -> None:
+        footer = ttk.Frame(
+            footer_parent or self, style="Surface.TFrame", padding=(16, 8, 16, 12)
+        )
+        footer.grid(
+            row=5 if footer_parent is None else 2, column=0, columnspan=2, sticky="ew"
+        )
+        footer.columnconfigure(0, weight=1)
+        self.progress = ttk.Progressbar(footer, mode="determinate")
+        self.progress.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        status_label = ttk.Label(
+            footer, textvariable=self.status, style="Tagline.TLabel"
+        )
+        status_label.grid(row=1, column=0, sticky="w", padx=(0, 12))
+        actions = ttk.Frame(footer, style="Surface.TFrame")
+        actions.grid(row=1, column=1, sticky="e")
+        footer.bind(
+            "<Configure>",
+            lambda event: status_label.configure(
+                wraplength=max(80, event.width - actions.winfo_reqwidth() - 48)
+            ),
+        )
         self.cancel_button = ttk.Button(
             actions, text=t("ui.button.cancel"), command=self.cancel, state="disabled"
         )
@@ -262,6 +329,25 @@ class ConverterPanel(ttk.Frame):
             style="Accent.TButton",
         )
         self.convert_button.grid(row=0, column=1)
+
+    def reflow(self, compact: bool) -> None:
+        if self.compact == compact:
+            return
+        self.compact = compact
+        self.policy_box.grid(
+            row=4 if compact else 3,
+            column=0 if compact else 1,
+            padx=0 if compact else (16, 0),
+            pady=(0, 8) if compact else (14, 0),
+            sticky="ew" if compact else "new",
+        )
+
+    def show_quality_controls(self, visible: bool) -> None:
+        for widget in self.quality_widgets:
+            if visible:
+                widget.grid()
+            else:
+                widget.grid_remove()
 
     def output_policy_changed(self, _event=None) -> None:
         policy = self._policy_by_display.get(
@@ -282,18 +368,19 @@ class ConverterPanel(ttk.Frame):
         self.update_output_name_preview()
 
     def update_output_name_preview(self) -> None:
-        selected = Path(self.selection.get())
-        if selected.is_file():
-            format_value = self.formats[self.output_format.get()]
-            extension = (
-                format_value[1] if isinstance(format_value, tuple) else format_value
-            )
+        selected = self.single_source()
+        format_value = self.formats[self.output_format.get()]
+        extension = format_value[1] if isinstance(format_value, tuple) else format_value
+        if selected is not None:
             name = output_filename(selected, extension, self.normalize_filenames.get())
             self.output_name_preview.set(t("ui.output_name.preview", name=name))
         else:
-            self.output_name_preview.set(t(self.NAME_EXAMPLE_KEY))
+            self.output_name_preview.set(t(self.NAME_EXAMPLE_KEY, extension=extension))
 
     def report_settings_changed(self, _event=None) -> None:
+        self.report_path_selector.configure(
+            state="readonly" if self.generate_report.get() else "disabled"
+        )
         try:
             self.settings_store.save_generate_report(self.generate_report.get())
             self.settings_store.save_report_absolute_paths(
@@ -305,46 +392,114 @@ class ConverterPanel(ttk.Frame):
     def files_in(self, folder: Path) -> list[Path]:
         return discover_files(folder, self.extensions, self.recursive.get()).files
 
+    def single_source(self) -> Path | None:
+        selection = self.selection.get()
+        if not selection or len(self.selected_files) > 1:
+            return None
+        path = Path(selection)
+        return path if not is_link(path) and path.is_file() else None
+
+    def _selection_changed(self, *_args) -> None:
+        self.selection_display.set(self.selection.get() or t("ui.source.empty"))
+        self._refresh_source_controls()
+        self._output_format_changed()
+
+    def _refresh_source_controls(self) -> None:
+        selected = self.selection.get()
+        self.convert_button.state(
+            ("!disabled" if selected and not self.busy else "disabled",)
+        )
+        folder = selected and not self.selected_files and Path(selected).is_dir()
+        self.recursive_check.state(
+            ("!disabled" if folder and not self.busy else "disabled",)
+        )
+
+    def _output_format_changed(self, *_args) -> None:
+        self.update_output_name_preview()
+        selected = self.selection.get()
+        parent = self.destination_parent
+        if parent is None and selected:
+            path = self.selected_files[0] if self.selected_files else Path(selected)
+            parent = path if not self.selected_files and path.is_dir() else path.parent
+        self.destination_preview.set(
+            str(parent / f"convertidos_{self.output_format.get().lower()}")
+            if parent is not None
+            else t("ui.destination.default")
+        )
+
+    def restore_sources(self, selected: str, files: tuple[Path, ...]) -> None:
+        self.selected_files = files
+        if len(files) > 1:
+            selected = t("ui.status.files_selected", count=len(files))
+        self.selection.set(selected)
+        if len(files) > 1:
+            self.status.set(selected)
+        elif selected:
+            path = Path(selected)
+            self.status.set(
+                t("ui.status.file_selected", name=path.name)
+                if path.is_file()
+                else t("ui.status.folder_selected")
+            )
+
+    def set_destination(self, parent: Path | None) -> None:
+        self.destination_parent = parent
+        self.reset_destination_button.state(
+            ("!disabled" if parent is not None else "disabled",)
+        )
+        self._output_format_changed()
+
+    def select_destination(self) -> None:
+        path = filedialog.askdirectory(
+            parent=self.root, title=t("ui.dialog.destination_title"), mustexist=True
+        )
+        if path:
+            self.set_destination(Path(path))
+
+    def reset_destination(self) -> None:
+        self.set_destination(None)
+
     def select_file(self) -> None:
         patterns = " ".join(f"*{ext}" for ext in sorted(self.extensions))
-        path_text = filedialog.askopenfilename(
+        paths = filedialog.askopenfilenames(
+            parent=self.root,
             title=t("ui.dialog.select_file_title"),
             filetypes=(
                 (t("ui.dialog.supported_files"), patterns),
                 (t("ui.dialog.all_files"), "*.*"),
             ),
         )
-        if path_text:
-            self.selection.set(path_text)
-            self.status.set(t("ui.status.file_selected", name=Path(path_text).name))
-            self.update_output_name_preview()
+        if paths:
+            files = tuple(dict.fromkeys(Path(path) for path in paths))
+            self.restore_sources(str(files[0]), files)
 
     def select_folder(self) -> None:
-        path_text = filedialog.askdirectory(title=t("ui.dialog.select_folder_title"))
+        path_text = filedialog.askdirectory(
+            parent=self.root, title=t("ui.dialog.select_folder_title"), mustexist=True
+        )
         if path_text:
-            self.selection.set(path_text)
-            self.status.set(t("ui.status.folder_selected"))
-            self.update_output_name_preview()
+            self.restore_sources(path_text, ())
 
     def start(self) -> None:
+        if self.busy or self.closing:
+            return
+        try:
+            source_root, files = self._batch_sources()
+        except (OSError, ValueError) as error:
+            messagebox.showwarning(
+                t("ui.dialog.selection_required_title"), str(error), parent=self.root
+            )
+            return
         validation_error = self.validate_start()
         if validation_error:
             messagebox.showerror(
-                t("ui.dialog.invalid_settings_title"), validation_error
-            )
-            return
-        selected = Path(self.selection.get())
-        if selected.is_file() and selected.suffix.lower() in self.extensions:
-            source_root, files = selected.parent, [selected]
-        elif selected.is_dir():
-            source_root, files = selected, None
-        else:
-            messagebox.showwarning(
-                t("ui.dialog.selection_required_title"),
-                t("ui.dialog.selection_required_body"),
+                t("ui.dialog.invalid_settings_title"),
+                validation_error,
+                parent=self.root,
             )
             return
 
+        options = self.conversion_options()
         self.cancel_event.clear()
         self.batch_started = time.monotonic()
         self.batch_started_at = datetime.now(timezone.utc)
@@ -353,7 +508,6 @@ class ConverterPanel(ttk.Frame):
         self.progress.configure(mode="indeterminate", value=0)
         self.progress.start(12)
         self.status.set(t("ui.status.discovering"))
-        options = self.conversion_options()
         self.report_enabled = bool(options.get("generate_report", False))
         self.report_absolute = bool(options.get("report_absolute_paths", False))
         self.report_source_root = source_root
@@ -363,8 +517,9 @@ class ConverterPanel(ttk.Frame):
             "quality": self.quality.get(),
             "recursive": self.recursive.get(),
         }
+        options["destination_parent"] = self.destination_parent
         threading.Thread(
-            target=self.prepare_batch,
+            target=self._run_batch,
             args=(
                 source_root,
                 files,
@@ -376,6 +531,34 @@ class ConverterPanel(ttk.Frame):
             daemon=True,
         ).start()
 
+    def _batch_sources(self) -> tuple[Path, list[Path] | None]:
+        selected = self.selection.get()
+        if not selected:
+            raise ValueError(t("ui.dialog.selection_required_body"))
+        path = Path(selected)
+        if not self.selected_files and path.is_dir():
+            if is_link(path):
+                raise ValueError(t("discovery.unsafe_path"))
+            return path.resolve(), None
+        files = self.selected_files or (path,)
+        source_root = files[0].parent.resolve()
+        for file in files:
+            if (
+                file.parent.resolve() != source_root
+                or is_link(file)
+                or file.suffix.casefold() not in self.extensions
+                or not file.is_file()
+            ):
+                raise ValueError(t("ui.error.invalid_source", name=file.name))
+        return source_root, [source_root / file.name for file in files]
+
+    def _run_batch(self, *args) -> None:
+        try:
+            self.prepare_batch(*args)
+        except Exception as error:
+            logging.getLogger(__name__).exception("batch_failed")
+            self.root.after(0, self.fail, describe_error(error).message)
+
     def prepare_batch(
         self,
         source_root: Path,
@@ -386,6 +569,9 @@ class ConverterPanel(ttk.Frame):
         options: dict[str, object],
     ) -> None:
         discovery_errors: list[str] = []
+        destination = batch_output_root(source_root, output_format, options)
+        if destination == source_root or destination in source_root.parents:
+            raise UserFacingError(t("ui.error.destination_contains_source"))
         if files is None:
             discovery = discover_files(
                 source_root, self.extensions, recursive, self.cancel_event
@@ -435,13 +621,19 @@ class ConverterPanel(ttk.Frame):
 
     def cancel(self) -> None:
         self.cancel_event.set()
+        self.cancel_button.state(("disabled",))
         self.status.set(t("ui.status.cancelling"))
-        stop_process(self.active_process)
+        process = self.active_process
+        if process is not None:
+            threading.Thread(target=stop_process, args=(process,), daemon=True).start()
 
     def no_files_found(self, errors: list[str]) -> None:
         self.progress.stop()
         self.progress.configure(mode="determinate", value=0)
         self.set_busy(False)
+        self.status.set(t("ui.status.no_files"))
+        if self.closing:
+            return
         detail = (
             t("ui.dialog.warnings_prefix") + "\n".join(errors[:5]) if errors else ""
         )
@@ -468,17 +660,26 @@ class ConverterPanel(ttk.Frame):
         for button in (
             self.file_button,
             self.folder_button,
-            self.convert_button,
+            self.destination_button,
             self.slider,
         ):
             button.configure(state=state)
         self.format_selector.configure(state="disabled" if busy else "readonly")
-        self.recursive_check.configure(state=state)
+        self._refresh_source_controls()
+        self.reset_destination_button.state(
+            (
+                "!disabled"
+                if not busy and self.destination_parent is not None
+                else "disabled",
+            )
+        )
         self.cancel_button.configure(state="normal" if busy else "disabled")
         self.policy_selector.configure(state="disabled" if busy else "readonly")
         self.normalize_check.configure(state=state)
         self.report_check.configure(state=state)
-        self.report_path_selector.configure(state="disabled" if busy else "readonly")
+        self.report_path_selector.configure(
+            state="readonly" if not busy and self.generate_report.get() else "disabled"
+        )
 
     def checksum_for_report(
         self, output: Path, enabled: bool
@@ -523,6 +724,7 @@ class ConverterPanel(ttk.Frame):
         completed_at = datetime.now(timezone.utc)
         generated_path = None
         try:
+            destination = checked_output_root(destination)
             report = build_report(
                 summary,
                 self.report_source_root,
@@ -551,7 +753,9 @@ class ConverterPanel(ttk.Frame):
         self.last_summary = summary
         self.set_busy(False)
         self.status.set(
-            t(
+            t("ui.status.cancelled", converted=summary.converted)
+            if summary.cancelled
+            else t(
                 "ui.status.finished",
                 converted=summary.converted,
                 skipped=summary.skipped,
@@ -573,7 +777,7 @@ class ConverterPanel(ttk.Frame):
             for warning in result.warnings:
                 logger.warning(
                     "conversion_warning source=%s code=%s severity=%s message=%s",
-                    result.source,
+                    result.source_path,
                     getattr(
                         getattr(warning, "code", None), "value", "OPERATION_WARNING"
                     ),
@@ -582,6 +786,8 @@ class ConverterPanel(ttk.Frame):
                 )
         for warning in summary.operation_warnings:
             logger.warning("batch_warning message=%s", warning)
+        if getattr(self, "closing", False):
+            return
         if summary.operation_warnings:
             messagebox.showwarning(
                 t("ui.dialog.report_failed_title"),
@@ -591,6 +797,11 @@ class ConverterPanel(ttk.Frame):
 
     def fail(self, detail: str) -> None:
         logging.getLogger(__name__).error("batch_aborted detail=%s", detail)
+        self.progress.stop()
+        self.progress.configure(mode="determinate", value=0)
         self.set_busy(False)
         self.status.set(t("ui.status.aborted"))
-        messagebox.showerror(t("ui.dialog.conversion_error_title"), detail)
+        if not self.closing:
+            messagebox.showerror(
+                t("ui.dialog.conversion_error_title"), detail, parent=self.root
+            )

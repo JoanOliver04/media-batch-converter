@@ -103,7 +103,9 @@ class VideoEncodingTests(unittest.TestCase):
         )
         self.assertIn("libvpx-vp9", command)
         self.assertIn("libopus", command)
-        self.assertEqual(command[3], str(Path("vídeo ü/source file.mov")))
+        self.assertEqual(
+            command[command.index("-i") + 1], str(Path("vídeo ü/source file.mov"))
+        )
         self.assertEqual(command[-1], str(Path("salida ü/output file.webm")))
 
     def test_invalid_container_codec_and_dimensions(self) -> None:
@@ -165,7 +167,7 @@ class VideoBatchTests(unittest.TestCase):
 
             def execute(command, callback):
                 commands.append(command)
-                callback(1.0)
+                callback(1.0, 1.0)
                 Path(command[-1]).write_bytes(b"converted")
 
             panel.run_ffmpeg = execute
@@ -183,7 +185,6 @@ class VideoBatchTests(unittest.TestCase):
                     return_value=Mock(path=Path("ffmpeg")),
                 ),
                 patch("ui.ffmpeg_panel.encoder_available", return_value=True),
-                patch("ui.ffmpeg_panel.probe_media", return_value=(1.0, False)),
             ):
                 panel.convert_ffmpeg_batch(
                     root,
@@ -218,7 +219,6 @@ class VideoBatchTests(unittest.TestCase):
                     return_value=Mock(path=Path("ffmpeg")),
                 ),
                 patch("ui.ffmpeg_panel.encoder_available", return_value=True),
-                patch("ui.ffmpeg_panel.probe_media", return_value=(10.0, True)),
             ):
                 panel.convert_ffmpeg_batch(
                     root,

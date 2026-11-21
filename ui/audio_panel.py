@@ -20,9 +20,14 @@ class AudioPanel(FFmpegPanel):
     MEDIA_TYPE = "audio"
     NAME_EXAMPLE_KEY = "ui.output_name.example.audio"
 
-    def __init__(self, parent, root: Tk) -> None:
+    def __init__(self, parent, root: Tk, footer_parent=None) -> None:
         super().__init__(
-            parent, root, t("ui.title.audio"), AUDIO_EXTENSIONS, AUDIO_FORMATS
+            parent,
+            root,
+            t("ui.title.audio"),
+            AUDIO_EXTENSIONS,
+            AUDIO_FORMATS,
+            footer_parent,
         )
         self._applying_audio_preset = False
         self.audio_preset_display = StringVar(value=t("ui.preset.custom"))
@@ -60,13 +65,10 @@ class AudioPanel(FFmpegPanel):
             "<<ComboboxSelected>>", self.apply_selected_audio_preset
         )
 
-        for row in range(6, 3, -1):
-            for widget in self.grid_slaves(row=row):
-                widget.grid_configure(row=row + 1)
         self.audio_advanced = ttk.LabelFrame(
-            self, text=t("ui.frame.audio"), padding=(10, 7)
+            self.encoding_column, text=t("ui.frame.audio"), padding=12
         )
-        self.audio_advanced.grid(row=4, column=0, sticky="ew", pady=(0, 12))
+        self.audio_advanced.grid(row=1, column=0, sticky="ew", pady=(0, 12))
         ttk.Label(self.audio_advanced, text=t("ui.label.sample_rate")).grid(
             row=0, column=0
         )
@@ -109,6 +111,7 @@ class AudioPanel(FFmpegPanel):
         ):
             variable.trace_add("write", self.audio_settings_changed)
         self.apply_audio_preset_id(self.settings_store.load_last_audio_preset())
+        self.update_quality_controls()
 
     def apply_selected_audio_preset(self, _event=None) -> None:
         self.apply_audio_preset_id(
@@ -158,6 +161,7 @@ class AudioPanel(FFmpegPanel):
             pass
 
     def audio_settings_changed(self, *_args) -> None:
+        self.update_quality_controls()
         if self._applying_audio_preset:
             return
         self.audio_preset_display.set(t("ui.preset.custom"))
@@ -211,7 +215,16 @@ class AudioPanel(FFmpegPanel):
         self.audio_preset_selector.configure(state=selector_state)
         self.audio_sample_selector.configure(state=selector_state)
         self.audio_channel_selector.configure(state=selector_state)
-        self.audio_bitrate_entry.configure(state="disabled" if busy else "normal")
+        self.update_quality_controls()
+
+    def update_quality_controls(self) -> None:
+        uses_bitrate = self.output_format.get() not in {"WAV", "FLAC"}
+        self.audio_bitrate_entry.configure(
+            state="normal" if uses_bitrate and not self.busy else "disabled"
+        )
+        self.show_quality_controls(
+            uses_bitrate and not self.audio_bitrate.get().strip()
+        )
 
     def convert_batch(
         self,

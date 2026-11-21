@@ -5,29 +5,30 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
+from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from audio_encoding import encoder_available
-from batch_processing import remove_if_empty
 from conversion_results import FileResult, ResultStatus, safe_file_size
-from error_handling import describe_error
+from error_handling import UserFacingError, describe_error
 from filename_normalization import path_key
 from i18n import t
 from output_policy import (
     OutputAction,
     OutputPlan,
+    OutputPlanner,
     OutputPolicy,
     cleanup_temporary,
     commit_output,
-    plan_output,
     policy_for_name_collision,
 )
-from process_control import stop_process, text_kwargs
+from process_control import ffmpeg_transcode_args, stop_process, text_kwargs
 from runtime_environment import resolve_ffmpeg
 from ui.base import BatchCancelled, ConverterPanel
-from ui.formats import batch_name_collision_keys, desired_output_path
-from video_encoding import ProgressLimiter, parse_progress_seconds, probe_media
+from ui.formats import batch_name_collision_keys, batch_output_root, desired_output_path
+from video_encoding import ProgressLimiter, parse_duration, parse_progress_seconds
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
@@ -39,6 +40,7 @@ class FFmpegBatch:
     ffmpeg: str
     source_root: Path
     destination: Path
+    planner: OutputPlanner
     extension: str
     codec_args: list[str]
     policy: OutputPolicy
@@ -47,6 +49,7 @@ class FFmpegBatch:
     audio_only: bool
     name_collisions: set[str]
     total: int
+    output_limit_bytes: int | None
 
 
 class FFmpegPanel(ConverterPanel):
@@ -55,7 +58,9 @@ class FFmpegPanel(ConverterPanel):
     Audio y vídeo comparten esta base en lugar de heredar uno del otro.
     """
 
-    def run_ffmpeg(self, command: list[str], progress_callback=None) -> None:
+    def run_ffmpeg(
+        self, command: list[str], progress_callback: Callable[[float, float], None]
+    ) -> None:
         process = subprocess.Popen(
             command,
             stdout=subprocess.DEVNULL,
@@ -63,23 +68,26 @@ class FFmpegPanel(ConverterPanel):
             **text_kwargs(),
         )
         self.active_process = process
-        stderr_lines: list[str] = []
+        stderr_lines: deque[str] = deque(maxlen=200)
+        duration = None
         try:
-            if process.stderr is not None:
-                for line in process.stderr:
-                    if self.cancel_event.is_set():
-                        stop_process(process)
-                        break
-                    stderr_lines.append(line.rstrip())
-                    if len(stderr_lines) > 200:
-                        del stderr_lines[:50]
-                    seconds = parse_progress_seconds(line)
-                    if seconds is not None and progress_callback is not None:
-                        progress_callback(seconds)
-            process.wait()
-        finally:
             if self.cancel_event.is_set():
                 stop_process(process)
+            if process.stderr is not None:
+                with process.stderr:
+                    for line in process.stderr:
+                        if self.cancel_event.is_set():
+                            stop_process(process)
+                            break
+                        stderr_lines.append(line.rstrip())
+                        if duration is None:
+                            duration = parse_duration(line)
+                        seconds = parse_progress_seconds(line)
+                        if seconds is not None and duration:
+                            progress_callback(seconds, duration)
+            process.wait()
+        finally:
+            stop_process(process)
             self.active_process = None
         if self.cancel_event.is_set():
             raise InterruptedError(t("error.cancelled"))
@@ -98,18 +106,20 @@ class FFmpegPanel(ConverterPanel):
         options: dict[str, object] | None,
         audio_only: bool,
         required_encoder: str | tuple[str, ...] | None = None,
+        output_limit_bytes: int | None = None,
     ) -> None:
-        destination = source_root / f"convertidos_{output_format.lower()}"
+        options = options or {}
+        destination = batch_output_root(source_root, output_format, options)
         ffmpeg = self._resolve_encoder(required_encoder)
         if ffmpeg is None:
             return
 
-        options = options or {}
         normalize = bool(options.get("normalize_filenames", False))
         batch = FFmpegBatch(
             ffmpeg=ffmpeg,
             source_root=source_root,
             destination=destination,
+            planner=OutputPlanner(),
             extension=extension,
             codec_args=codec_args,
             policy=OutputPolicy(options.get("output_policy", OutputPolicy.SKIP)),
@@ -120,6 +130,7 @@ class FFmpegPanel(ConverterPanel):
                 destination, source_root, files, extension, normalize
             ),
             total=len(files),
+            output_limit_bytes=output_limit_bytes,
         )
 
         results: list[FileResult] = []
@@ -183,7 +194,7 @@ class FFmpegPanel(ConverterPanel):
         discovery_errors: list[str],
         cancelled: bool,
     ) -> None:
-        remove_if_empty(batch.destination)
+        batch.planner.prune_empty_directories()
         self.root.after(
             0,
             self.finish_results,
@@ -206,9 +217,8 @@ class FFmpegPanel(ConverterPanel):
                 batch.extension,
                 batch.normalize,
             )
-            desired.parent.mkdir(parents=True, exist_ok=True)
             collision = path_key(desired) in batch.name_collisions
-            plan = plan_output(
+            plan = batch.planner.plan(
                 source, desired, policy_for_name_collision(batch.policy, collision)
             )
             if not plan.should_convert:
@@ -228,6 +238,14 @@ class FFmpegPanel(ConverterPanel):
                 )
 
             self._encode(batch, source, plan, index)
+            if self.cancel_event.is_set():
+                raise BatchCancelled()
+            output_bytes = plan.temporary.stat().st_size
+            if (
+                batch.output_limit_bytes is not None
+                and output_bytes > batch.output_limit_bytes
+            ):
+                raise UserFacingError(t("ui.video.output_exceeds_limit"))
             commit_output(plan)
             checksum, checksum_warnings = self.checksum_for_report(
                 plan.target, batch.generate_report
@@ -237,7 +255,7 @@ class FFmpegPanel(ConverterPanel):
                 plan.target,
                 ResultStatus.CONVERTED,
                 original_bytes,
-                safe_file_size(plan.target),
+                output_bytes,
                 processing_seconds=time.monotonic() - started,
                 output_action=plan.action.value,
                 name_collision=collision,
@@ -264,28 +282,15 @@ class FFmpegPanel(ConverterPanel):
     ) -> None:
         if self.cancel_event.is_set():
             raise InterruptedError(t("error.cancelled"))
-        command = [batch.ffmpeg, "-y", "-i", str(source), "-map_metadata", "0"]
-        duration = None
+        command = [batch.ffmpeg, *ffmpeg_transcode_args(source)]
         if batch.audio_only:
             command.append("-vn")
-        else:
-            duration, _has_audio = probe_media(batch.ffmpeg, source)
-            if self.cancel_event.is_set():
-                raise InterruptedError(t("error.cancelled"))
-            command.extend(("-progress", "pipe:2", "-nostats"))
         command.extend((*batch.codec_args, str(plan.temporary)))
-
-        if batch.audio_only:
-            self.run_ffmpeg(command)
-            return
-
         limiter = ProgressLimiter()
 
-        def update_media_progress(seconds: float) -> None:
-            if duration and duration > 0:
-                fraction = min(1.0, max(0.0, seconds / duration))
-                if not limiter.should_emit(time.monotonic(), completed=fraction >= 1.0):
-                    return
+        def update_media_progress(seconds: float, duration: float) -> None:
+            fraction = min(1.0, max(0.0, seconds / duration))
+            if limiter.should_emit(time.monotonic(), completed=fraction >= 1.0):
                 self.root.after(
                     0, self.progress.configure, {"value": (index - 1) + fraction}
                 )

@@ -39,8 +39,11 @@ class ConverterApp:
         set_language(self.settings_store.load_language())
         apply_theme(root)
         root.title(APP_NAME)
-        root.geometry("980x860")
-        root.minsize(820, 720)
+        width = min(1160, root.winfo_screenwidth() - 40)
+        height = min(850, root.winfo_screenheight() - 105)
+        root.geometry(f"{width}x{height}")
+        root.minsize(min(640, width), min(500, height))
+        self.closing = False
         self.container = ttk.Frame(root)
         self.container.pack(fill="both", expand=True)
         self.panels: tuple = ()
@@ -52,12 +55,7 @@ class ConverterApp:
             self.container, style="Surface.TFrame", padding=(20, 14, 20, 0)
         )
         header.pack(fill="x")
-        ttk.Label(header, text=APP_NAME.upper(), style="Wordmark.TLabel").pack(
-            side="left"
-        )
-        ttk.Label(header, text=t("ui.header.tagline"), style="Tagline.TLabel").pack(
-            side="left", padx=(12, 0)
-        )
+        ttk.Label(header, text=APP_NAME, style="Wordmark.TLabel").pack(side="left")
 
         self._language_by_display = {
             language_display_name(language): language
@@ -82,7 +80,9 @@ class ConverterApp:
         rule.pack(fill="x", pady=(14, 0))
 
         notebook = ttk.Notebook(self.container)
+        self.notebook = notebook
         notebook.pack(fill="both", expand=True)
+        notebook.enable_traversal()
         image_tab = ScrollableTab(notebook, ImagePanel, self.root)
         audio_tab = ScrollableTab(notebook, AudioPanel, self.root)
         video_tab = ScrollableTab(notebook, VideoPanel, self.root)
@@ -132,22 +132,53 @@ class ConverterApp:
         self.root.after(0, self._rebuild)
 
     def _on_close(self) -> None:
+        if self.closing:
+            return
         if self.conversion_running():
             if not messagebox.askyesno(
                 t("ui.dialog.close_busy_title"),
                 t("ui.dialog.close_busy_body"),
             ):
                 return
+            self.closing = True
+            self.language_selector.state(("disabled",))
             for panel in self.panels:
+                panel.closing = True
                 if getattr(panel, "busy", False):
                     panel.cancel()
+            self._close_when_finished()
+            return
         self.root.destroy()
 
+    def _close_when_finished(self) -> None:
+        if self.conversion_running():
+            self.root.after(50, self._close_when_finished)
+        else:
+            self.root.destroy()
+
     def _rebuild(self) -> None:
+        current_tab = self.notebook.index("current")
+        selections = [
+            (
+                panel.selection.get(),
+                panel.selected_files,
+                panel.destination_parent,
+                panel.recursive.get(),
+            )
+            for panel in self.panels
+        ]
         for child in self.container.winfo_children():
             child.destroy()
         self.panels = ()
         self._build()
+        for panel, (selection, files, destination, recursive) in zip(
+            self.panels, selections, strict=True
+        ):
+            panel.recursive.set(recursive)
+            panel.set_destination(destination)
+            panel.restore_sources(selection, files)
+        if self.notebook.tab(current_tab, "state") == "normal":
+            self.notebook.select(current_tab)
 
 
 def main() -> None:

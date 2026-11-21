@@ -8,6 +8,7 @@ from io import BytesIO
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from documents.security import MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS
+from image_validation import IMAGE_INPUT_FORMATS
 
 MAX_RENDER_WIDTH = 1600
 MAX_RENDER_HEIGHT = 1600
@@ -26,7 +27,9 @@ def normalize_image(data: bytes) -> NormalizedImage | None:
     if not data or len(data) > MAX_IMAGE_BYTES:
         return None
     try:
-        with Image.open(BytesIO(data)) as image:
+        with Image.open(
+            BytesIO(data), formats=(*IMAGE_INPUT_FORMATS, "JPEG2000")
+        ) as image:
             if image.width <= 0 or image.height <= 0:
                 return None
             if image.width * image.height > MAX_IMAGE_PIXELS:

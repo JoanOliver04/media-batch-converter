@@ -95,8 +95,35 @@ class LanguageSelectorTests(unittest.TestCase):
         app = self.build()
         self.select(app, "English")
         image_panel = app.panels[0]
-        self.assertEqual(image_panel.file_button.cget("text"), "Select file")
+        self.assertEqual(image_panel.file_button.cget("text"), "Select files")
         self.assertEqual(image_panel.convert_button.cget("text"), "Start conversion")
+
+    def test_language_switch_keeps_sources_destination_and_active_tab(self) -> None:
+        app = self.build()
+        source_root = Path(self.temporary.name)
+        files = (source_root / "one.jpg", source_root / "two.png")
+        for file in files:
+            file.touch()
+        panel = app.panels[2]
+        panel.restore_sources(str(files[0]), files)
+        panel.set_destination(source_root)
+        app.notebook.select(2)
+        self.select(app, "English")
+
+        rebuilt = app.panels[2]
+        self.assertEqual(app.notebook.index("current"), 2)
+        self.assertEqual(rebuilt.selected_files, files)
+        self.assertEqual(rebuilt.destination_parent, source_root)
+        self.assertEqual(rebuilt.selection.get(), "2 files selected")
+
+    def test_empty_selection_cannot_start_a_batch(self) -> None:
+        app = self.build()
+        panel = app.panels[0]
+        self.assertTrue(panel.convert_button.instate(("disabled",)))
+        with patch("ui.base.messagebox.showwarning") as warned:
+            panel.start()
+        warned.assert_called_once()
+        self.assertFalse(panel.busy)
 
     def test_only_one_notebook_survives_a_rebuild(self) -> None:
         app = self.build()

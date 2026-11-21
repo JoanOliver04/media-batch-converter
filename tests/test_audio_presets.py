@@ -78,7 +78,9 @@ class AudioPresetModelTests(unittest.TestCase):
             settings,
             "M4A",
         )
-        self.assertEqual(command[3], str(Path("carpeta ü/input file.wav")))
+        self.assertEqual(
+            command[command.index("-i") + 1], str(Path("carpeta ü/input file.wav"))
+        )
         self.assertEqual(command[-1], str(Path("salida ü/output file.m4a")))
         self.assertIn("2", command)
 
@@ -127,7 +129,7 @@ class AudioBatchTests(unittest.TestCase):
             panel.report_progress = lambda *_args: None
             commands: list[list[str]] = []
 
-            def execute(command: list[str]) -> None:
+            def execute(command: list[str], _callback) -> None:
                 commands.append(command)
                 Path(command[-1]).write_bytes(b"converted")
 
@@ -155,7 +157,7 @@ class AudioBatchTests(unittest.TestCase):
                     required_encoder="aac",
                 )
             self.assertIsInstance(commands[0], list)
-            self.assertEqual(commands[0][3], str(source))
+            self.assertEqual(commands[0][commands[0].index("-i") + 1], str(source))
             self.assertEqual(completion["results"][0].status.value, "converted")
 
 

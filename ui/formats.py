@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from batch_processing import safe_output_directory
+from batch_processing import checked_output_root, safe_output_directory
 from filename_normalization import collision_keys, output_filename
 
 IMAGE_FORMATS = {
@@ -77,6 +77,14 @@ def desired_output_path(
     return directory / output_filename(source, extension, normalize)
 
 
+def batch_output_root(
+    source_root: Path, output_format: str, options: dict[str, object]
+) -> Path:
+    parent = options.get("destination_parent")
+    selected = parent if isinstance(parent, Path) else source_root
+    return checked_output_root(selected / f"convertidos_{output_format.lower()}")
+
+
 def batch_name_collision_keys(
     output_root: Path,
     source_root: Path,
@@ -84,9 +92,15 @@ def batch_name_collision_keys(
     extension: str,
     normalize: bool,
 ) -> set[str]:
-    return collision_keys(
-        [
-            desired_output_path(output_root, source_root, source, extension, normalize)
-            for source in sources
-        ]
-    )
+    paths = []
+    for source in sources:
+        try:
+            paths.append(
+                desired_output_path(
+                    output_root, source_root, source, extension, normalize
+                )
+            )
+        except (OSError, ValueError):
+            # The converter will report the individual file's unsafe path.
+            continue
+    return collision_keys(paths)

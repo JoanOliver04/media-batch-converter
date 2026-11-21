@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from threading import Event
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from conversion_report import (
     SCHEMA_VERSION,
@@ -45,6 +45,24 @@ class ImmediateRoot:
 
 
 class ConversionReportTests(unittest.TestCase):
+    def test_summary_opens_when_a_conversion_emits_warnings(self) -> None:
+        panel = ConverterPanel.__new__(ConverterPanel)
+        panel.root = ImmediateRoot()
+        panel.status = Mock()
+        panel.set_busy = Mock()
+        result = FileResult(
+            Path("image.png"),
+            Path("image.webp"),
+            ResultStatus.CONVERTED,
+            5,
+            10,
+            warnings=("Larger output",),
+        )
+        summary = BatchSummary(1, (result,), 1)
+        with patch("ui.base.show_summary") as show:
+            panel.show_results(Path("output"), summary, None)
+        show.assert_called_once_with(panel.root, summary, Path("output"), None)
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name).resolve()
@@ -280,12 +298,19 @@ class ConversionReportTests(unittest.TestCase):
     def test_report_write_failure_leaves_no_partial_json(self) -> None:
         target = self.output_root / "conversion_report.json"
         with patch(
-            "conversion_report.os.replace", side_effect=PermissionError("locked")
+            "conversion_report.publish_new_file", side_effect=PermissionError("locked")
         ):
             with self.assertRaises(PermissionError):
                 write_report_atomic(target, {"schemaVersion": 1})
         self.assertFalse(target.exists())
         self.assertEqual(list(self.output_root.glob("*.tmp")), [])
+
+    def test_report_does_not_replace_a_concurrent_report(self) -> None:
+        target = self.output_root / "conversion_report.json"
+        write_report_atomic(target, {"sequence": 1})
+        with self.assertRaises(FileExistsError):
+            write_report_atomic(target, {"sequence": 2})
+        self.assertIn('"sequence": 1', target.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

@@ -63,10 +63,9 @@ def output_filename(source: Path, extension: str, enabled: bool) -> str:
 
 def collision_keys(paths: list[Path]) -> set[str]:
     """Return case-insensitive path keys generated more than once in a batch."""
-    keys = [str(path.resolve(strict=False)).casefold() for path in paths]
-    counts = Counter(keys)
+    counts = Counter(path_key(path) for path in paths)
     return {key for key, count in counts.items() if count > 1}
 
 
 def path_key(path: Path) -> str:
-    return str(path.resolve(strict=False)).casefold()
+    return str(path.absolute()).casefold()

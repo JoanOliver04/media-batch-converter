@@ -4,7 +4,7 @@ Media Batch Converter source code is licensed under MIT. Third-party components 
 
 ## Pillow
 
-Pillow is installed from PyPI and used for image decoding and encoding. The pinned Pillow 12.2.0 package declares the MIT-CMU license. See https://github.com/python-pillow/Pillow/blob/main/LICENSE and the installed package metadata.
+Pillow is installed from PyPI and used for image decoding and encoding. The pinned Pillow 13.0.0 package declares the MIT-CMU license. [Pillow license](https://github.com/python-pillow/Pillow/blob/main/LICENSE)
 
 ## imageio-ffmpeg
 
@@ -12,7 +12,7 @@ Pillow is installed from PyPI and used for image decoding and encoding. The pinn
 
 ## FFmpeg
 
-Windows distributions produced by this repository bundle the FFmpeg executable supplied by the pinned `imageio-ffmpeg` package at build time. No FFmpeg binary is committed to this repository.
+Windows builds bundle FFmpeg from the pinned `imageio-ffmpeg` package or the executable selected via `MEDIA_BATCH_BUILD_FFMPEG`. Identify the actual binary and corresponding source for each distribution.
 
 The pinned Windows binary is FFmpeg 7.1 essentials from gyan.dev and reports `--enable-gpl --enable-version3`; redistribution must therefore be treated as GPLv3-or-later rather than LGPL-only. A release must retain the applicable notices, identify the exact source at https://www.gyan.dev/ffmpeg/builds/, and satisfy the corresponding-source obligations. Codec patents and other obligations can vary by jurisdiction. See https://ffmpeg.org/legal.html.
 

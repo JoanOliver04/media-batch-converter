@@ -2,18 +2,27 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 from enum import StrEnum
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
+from tempfile import mkdtemp
 
 from PIL import Image
 
+from batch_processing import is_link
+from error_handling import UserFacingError
 from i18n import t
 
 MAX_ANIMATION_FRAMES = 500
+MAX_PRESERVED_FRAME_PIXELS = 64 * 1024 * 1024
 MAX_WEBP_DURATION_BYTES = 200 * 1024 * 1024
+FRAME_NAME = re.compile(
+    r"frame_[0-9]{4,}\.(bmp|gif|ico|jpe?g|png|tiff?|webp)", re.IGNORECASE
+)
 
 
 class AnimationMode(StrEnum):
@@ -100,7 +109,9 @@ def existing_directory(desired: Path) -> Path | None:
         return next(
             entry
             for entry in desired.parent.iterdir()
-            if entry.is_dir() and entry.name.casefold() == desired.name.casefold()
+            if entry.name.casefold() == desired.name.casefold()
+            and not is_link(entry)
+            and entry.is_dir()
         )
     except (FileNotFoundError, StopIteration):
         return None
@@ -123,3 +134,37 @@ def frame_directory(desired: Path, maximum_attempts: int = 10_000) -> Path:
 
 def frame_number_width(frame_count: int) -> int:
     return max(4, len(str(max(1, frame_count))))
+
+
+def publish_frame_directory(staged: Path, target: Path, replace_existing: bool) -> None:
+    """Install a finished frame set and preserve the previous one if installation fails."""
+    if not replace_existing:
+        if target.exists() or is_link(target):
+            raise FileExistsError(target)
+        staged.rename(target)
+        return
+
+    if is_link(target) or any(
+        not FRAME_NAME.fullmatch(entry.name) or is_link(entry) or not entry.is_file()
+        for entry in target.iterdir()
+    ):
+        raise UserFacingError(t("ui.error.frame_destination"))
+
+    backup_root = Path(mkdtemp(prefix=".previous-frames-", dir=target.parent))
+    backup = backup_root / "frames"
+    try:
+        target.rename(backup)
+        try:
+            staged.rename(target)
+        except OSError:
+            backup.rename(target)
+            raise
+        try:
+            for entry in backup.iterdir():
+                entry.unlink()
+            backup.rmdir()
+        except OSError:
+            logging.getLogger(__name__).warning("frame_backup_retained path=%s", backup)
+    finally:
+        if not backup.exists():
+            backup_root.rmdir()

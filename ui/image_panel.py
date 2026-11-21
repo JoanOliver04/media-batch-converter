@@ -3,25 +3,26 @@
 from __future__ import annotations
 
 import logging
-import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from tkinter import BooleanVar, StringVar, Tk, ttk
 
 from PIL import Image, ImageOps, ImageSequence
 
 from animation_handling import (
     MAX_ANIMATION_FRAMES,
+    MAX_PRESERVED_FRAME_PIXELS,
     AnimationMode,
     animation_supported,
     animation_too_large,
     existing_directory,
     frame_directory,
     frame_number_width,
+    publish_frame_directory,
     webp_frame_durations,
 )
-from batch_processing import remove_if_empty
 from conversion_results import FileResult, FrameResult, ResultStatus, safe_file_size
 from error_handling import describe_error
 from filename_normalization import path_key
@@ -33,6 +34,8 @@ from image_resize import (
     validate_resize_config,
 )
 from image_validation import (
+    open_supported_image,
+    oriented_dimensions,
     ImageValidationError,
     ImageWarning,
     ImageWarningCode,
@@ -43,10 +46,10 @@ from image_validation import (
 from output_policy import (
     OutputAction,
     OutputPlan,
+    OutputPlanner,
     OutputPolicy,
     cleanup_temporary,
     commit_output,
-    plan_output,
     policy_for_name_collision,
 )
 from presets import CUSTOM_PRESET_ID, IMAGE_PRESETS, preset_by_id, preset_matches
@@ -55,6 +58,7 @@ from ui.formats import (
     IMAGE_EXTENSIONS,
     IMAGE_FORMATS,
     batch_name_collision_keys,
+    batch_output_root,
     desired_output_path,
 )
 from webp_encoding import (
@@ -73,6 +77,7 @@ class ImageBatch:
 
     source_root: Path
     destination: Path
+    planner: OutputPlanner
     image_format: str
     extension: str
     quality: int
@@ -116,9 +121,14 @@ class ImagePanel(ConverterPanel):
         WebPMode.LOSSLESS.value: "ui.webp.help.lossless",
     }
 
-    def __init__(self, parent, root: Tk) -> None:
+    def __init__(self, parent, root: Tk, footer_parent=None) -> None:
         super().__init__(
-            parent, root, t("ui.title.image"), IMAGE_EXTENSIONS, IMAGE_FORMATS
+            parent,
+            root,
+            t("ui.title.image"),
+            IMAGE_EXTENSIONS,
+            IMAGE_FORMATS,
+            footer_parent,
         )
         self.webp_mode = StringVar(value=WebPMode.AUTOMATIC.value)
         self.animation_mode = StringVar(value=self.settings_store.load_animation_mode())
@@ -171,12 +181,11 @@ class ImagePanel(ConverterPanel):
         self.output_format.trace_add("write", self.settings_changed)
         self.quality.trace_add("write", self.settings_changed)
         self.webp_mode.trace_add("write", self.settings_changed)
-        for row in range(6, 3, -1):
-            for widget in self.grid_slaves(row=row):
-                widget.grid_configure(row=row + 1)
 
-        self.webp_frame = ttk.LabelFrame(self, text=t("ui.frame.webp"), padding=(10, 6))
-        self.webp_frame.grid(row=4, column=0, sticky="ew", pady=(0, 12))
+        self.webp_frame = ttk.LabelFrame(
+            self.encoding_column, text=t("ui.frame.webp"), padding=12
+        )
+        self.webp_frame.grid(row=1, column=0, sticky="ew", pady=(0, 12))
         for column, (text, mode) in enumerate(
             (
                 (t("ui.webp.automatic"), WebPMode.AUTOMATIC),
@@ -198,13 +207,10 @@ class ImagePanel(ConverterPanel):
             style="Muted.TLabel",
         ).grid(row=1, column=0, columnspan=3, sticky="w", pady=(5, 0))
         self.format_selector.bind("<<ComboboxSelected>>", self.update_webp_controls)
-        for row in range(7, 4, -1):
-            for widget in self.grid_slaves(row=row):
-                widget.grid_configure(row=row + 1)
         self.resize_box = ttk.LabelFrame(
-            self, text=t("ui.frame.resize"), padding=(10, 7)
+            self.encoding_column, text=t("ui.frame.resize"), padding=12
         )
-        self.resize_box.grid(row=5, column=0, sticky="ew", pady=(0, 12))
+        self.resize_box.grid(row=2, column=0, sticky="ew", pady=(0, 12))
         ttk.Label(self.resize_box, text=t("ui.label.mode")).grid(
             row=0, column=0, padx=(0, 8)
         )
@@ -233,13 +239,15 @@ class ImagePanel(ConverterPanel):
             text=t("ui.check.never_upscale"),
             variable=self.never_upscale,
         )
-        self.never_upscale_check.grid(row=1, column=4, padx=(12, 0), sticky="w")
+        self.never_upscale_check.grid(
+            row=2, column=0, columnspan=4, pady=(5, 0), sticky="w"
+        )
         ttk.Label(
             self.resize_box,
             textvariable=self.resize_preview,
             wraplength=700,
             style="Muted.TLabel",
-        ).grid(row=2, column=0, columnspan=6, sticky="w", pady=(6, 0))
+        ).grid(row=3, column=0, columnspan=6, sticky="w", pady=(6, 0))
         self.resize_selector.bind("<<ComboboxSelected>>", self.resize_mode_changed)
         for variable in (
             self.resize_width,
@@ -250,13 +258,10 @@ class ImagePanel(ConverterPanel):
             variable.trace_add("write", self.resize_settings_changed)
         self.update_resize_controls()
         self.apply_preset_id(self.settings_store.load_last_image_preset())
-        for row in range(8, 5, -1):
-            for widget in self.grid_slaves(row=row):
-                widget.grid_configure(row=row + 1)
         self.animation_frame = ttk.LabelFrame(
-            self, text=t("ui.frame.animation"), padding=(10, 7)
+            self.encoding_column, text=t("ui.frame.animation"), padding=12
         )
-        self.animation_frame.grid(row=6, column=0, sticky="ew", pady=(0, 12))
+        self.animation_frame.grid(row=3, column=0, sticky="ew", pady=(0, 12))
         for column, (label, mode) in enumerate(
             (
                 (t("ui.animation.preserve"), AnimationMode.PRESERVE),
@@ -278,7 +283,12 @@ class ImagePanel(ConverterPanel):
             style="Muted.TLabel",
         )
         self.animation_help.grid(row=1, column=0, columnspan=3, pady=(5, 0), sticky="w")
+        self.selection.trace_add("write", self.image_source_changed)
         self.update_animation_controls()
+
+    def image_source_changed(self, *_args) -> None:
+        self.update_animation_controls()
+        self.update_resize_preview()
 
     def animation_mode_changed(self) -> None:
         try:
@@ -288,18 +298,22 @@ class ImagePanel(ConverterPanel):
         self.update_animation_controls()
 
     def selected_file_is_animated(self) -> bool:
-        selected = Path(self.selection.get())
-        if not selected.is_file():
+        selected = self.single_source()
+        if selected is None:
             return False
         try:
-            with Image.open(selected) as image:
+            with open_supported_image(selected) as image:
                 return bool(getattr(image, "is_animated", False) and image.n_frames > 1)
-        except OSError:
+        except (OSError, Image.DecompressionBombError):
             return False
 
     def update_animation_controls(self) -> None:
-        selected = Path(self.selection.get())
-        relevant = selected.is_dir() or self.selected_file_is_animated()
+        selection = self.selection.get()
+        relevant = bool(selection) and (
+            len(self.selected_files) > 1
+            or Path(selection).is_dir()
+            or self.selected_file_is_animated()
+        )
         if not relevant:
             self.animation_frame.grid_remove()
             return
@@ -380,38 +394,31 @@ class ImagePanel(ConverterPanel):
         self.update_resize_preview()
 
     def update_resize_preview(self) -> None:
-        selected = Path(self.selection.get())
-        if selected.is_dir():
+        selection = self.selection.get()
+        selected = self.single_source()
+        if len(self.selected_files) > 1 or (selection and Path(selection).is_dir()):
             self.resize_preview.set(t("ui.resize.preview_batch"))
             return
-        if not selected.is_file():
+        if selected is None:
             self.resize_preview.set(t("ui.resize.preview_none"))
             return
         try:
             config = self.current_resize_config()
             validate_resize_config(config)
-            with Image.open(selected) as image:
-                oriented = ImageOps.exif_transpose(image)
-                target = calculate_resize_dimensions(*oriented.size, config)
+            with open_supported_image(selected) as image:
+                width, height = oriented_dimensions(image)
+                target = calculate_resize_dimensions(width, height, config)
                 self.resize_preview.set(
                     t(
                         "ui.resize.preview_estimate",
-                        width=oriented.width,
-                        height=oriented.height,
+                        width=width,
+                        height=height,
                         target_width=target[0],
                         target_height=target[1],
                     )
                 )
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, Image.DecompressionBombError) as error:
             self.resize_preview.set(t("ui.resize.preview_pending", error=error))
-
-    def select_file(self) -> None:
-        super().select_file()
-        self.update_resize_preview()
-
-    def select_folder(self) -> None:
-        super().select_folder()
-        self.update_resize_preview()
 
     def apply_selected_preset(self, _event=None) -> None:
         preset_id = self._preset_ids_by_display.get(
@@ -480,9 +487,10 @@ class ImagePanel(ConverterPanel):
             self.webp_frame.grid_remove()
         if hasattr(self, "animation_frame"):
             self.update_animation_controls()
-        quality_applies = not (
-            visible and self.webp_mode.get() == WebPMode.LOSSLESS.value
+        quality_applies = self.output_format.get() == "JPG" or (
+            visible and self.webp_mode.get() != WebPMode.LOSSLESS.value
         )
+        self.show_quality_controls(quality_applies)
         self.slider.configure(
             state="normal" if quality_applies and not self.busy else "disabled"
         )
@@ -645,7 +653,7 @@ class ImagePanel(ConverterPanel):
         self,
         image: Image.Image,
         source: Path,
-        desired_output: Path,
+        directory: Path,
         image_format: str,
         extension: str,
         quality: int,
@@ -654,11 +662,6 @@ class ImagePanel(ConverterPanel):
         generate_report: bool,
         animation_durations: tuple[int, ...],
     ) -> tuple[Path, tuple[FrameResult, ...], tuple[str, ...], WebPMode | None]:
-        directory = frame_directory(
-            desired_output.with_name(f"{desired_output.stem}_frames")
-        )
-        directory.mkdir(parents=True, exist_ok=False)
-        created: list[Path] = []
         frame_results: list[FrameResult] = []
         checksum_warnings: list[str] = []
         target_size: tuple[int, int] | None = None
@@ -668,45 +671,32 @@ class ImagePanel(ConverterPanel):
             else None
         )
         width = frame_number_width(image.n_frames)
-        try:
-            for index, frame in enumerate(ImageSequence.Iterator(image), 1):
-                if self.cancel_event.is_set():
-                    raise InterruptedError(t("ui.error.frame_extraction_cancelled"))
-                duration = int(
-                    frame.info.get("duration", image.info.get("duration", 100))
-                )
-                resized, target_size = self.resize_frame(
-                    frame.convert("RGBA"), resize_config, target_size
-                )
-                output = directory / f"frame_{index:0{width}d}{extension}"
-                plan = plan_output(source, output, OutputPolicy.OVERWRITE)
-                try:
-                    self.save_image(
-                        resized,
-                        plan.temporary,
-                        image_format,
-                        quality,
-                        source,
-                        resolved_mode or requested_mode,
-                        ResizeConfig(),
-                    )
-                    commit_output(plan)
-                except Exception:
-                    cleanup_temporary(plan)
-                    raise
-                created.append(output)
-                checksum, warnings_found = self.checksum_for_report(
-                    output, generate_report
-                )
-                checksum_warnings.extend(warnings_found)
-                frame_results.append(
-                    FrameResult(output, duration, safe_file_size(output), checksum)
-                )
-        except Exception:
-            for output in created:
-                output.unlink(missing_ok=True)
-            directory.rmdir()
-            raise
+        for index, frame in enumerate(ImageSequence.Iterator(image)):
+            if self.cancel_event.is_set():
+                raise InterruptedError(t("ui.error.frame_extraction_cancelled"))
+            duration = (
+                animation_durations[index]
+                if index < len(animation_durations)
+                else int(frame.info.get("duration", 100))
+            )
+            resized, target_size = self.resize_frame(
+                frame.convert("RGBA"), resize_config, target_size
+            )
+            output = directory / f"frame_{index + 1:0{width}d}{extension}"
+            self.save_image(
+                resized,
+                output,
+                image_format,
+                quality,
+                source,
+                resolved_mode or requested_mode,
+                ResizeConfig(),
+            )
+            checksum, warnings_found = self.checksum_for_report(output, generate_report)
+            checksum_warnings.extend(warnings_found)
+            frame_results.append(
+                FrameResult(output, duration, safe_file_size(output), checksum)
+            )
         return directory, tuple(frame_results), tuple(checksum_warnings), resolved_mode
 
     def convert_batch(
@@ -758,11 +748,12 @@ class ImagePanel(ConverterPanel):
     ) -> ImageBatch:
         options = options or {}
         image_format, extension = IMAGE_FORMATS[chosen]
-        destination = source_root / f"convertidos_{chosen.lower()}"
+        destination = batch_output_root(source_root, chosen, options)
         normalize = bool(options.get("normalize_filenames", False))
         return ImageBatch(
             source_root=source_root,
             destination=destination,
+            planner=OutputPlanner(),
             image_format=image_format,
             extension=extension,
             quality=quality,
@@ -786,7 +777,7 @@ class ImagePanel(ConverterPanel):
         discovery_errors: list[str],
         cancelled: bool,
     ) -> None:
-        remove_if_empty(batch.destination)
+        batch.planner.prune_empty_directories()
         self.root.after(
             0,
             self.finish_results,
@@ -807,7 +798,7 @@ class ImagePanel(ConverterPanel):
             cleanup_temporary(context.plan)
             if isinstance(error, ImageValidationError):
                 context.warnings = error.warnings
-            if isinstance(error, InterruptedError) and self.cancel_event.is_set():
+            if self.cancel_event.is_set():
                 raise BatchCancelled from error
             return FileResult(
                 file,
@@ -826,7 +817,6 @@ class ImagePanel(ConverterPanel):
         desired = desired_output_path(
             batch.destination, batch.source_root, file, batch.extension, batch.normalize
         )
-        desired.parent.mkdir(parents=True, exist_ok=True)
         context.collision = path_key(desired) in batch.name_collisions
         context.warnings = tuple(validate_image(file, batch.image_format))
         if [warning for warning in context.warnings if warning.blocking]:
@@ -846,6 +836,21 @@ class ImagePanel(ConverterPanel):
                 limit=MAX_ANIMATION_FRAMES,
             )
             raise ImageValidationError([*context.warnings, too_many])
+        if metadata.is_animated and batch.animation_policy is AnimationMode.PRESERVE:
+            width, height = calculate_resize_dimensions(
+                metadata.width, metadata.height, batch.resize_config
+            )
+            if (
+                width * height * (metadata.frame_count or 1)
+                > MAX_PRESERVED_FRAME_PIXELS
+            ):
+                over_budget = self.animation_warning(
+                    ImageWarningCode.ANIMATION_MEMORY_LIMIT,
+                    WarningSeverity.BLOCKING_ERROR,
+                    t("ui.warning.animation_memory_limit"),
+                    file,
+                )
+                raise ImageValidationError([*context.warnings, over_budget])
         if (
             metadata.is_animated
             and batch.animation_policy is not AnimationMode.PRESERVE
@@ -861,6 +866,7 @@ class ImagePanel(ConverterPanel):
             metadata.is_animated
             and batch.animation_policy is AnimationMode.EXTRACT_FRAMES
         ):
+            batch.planner.ensure_directory(desired.parent)
             return self._convert_extracted_frames(
                 batch, file, desired, metadata, context
             )
@@ -879,7 +885,7 @@ class ImagePanel(ConverterPanel):
             )
             raise ImageValidationError([*context.warnings, unsupported])
 
-        context.plan = plan_output(
+        context.plan = batch.planner.plan(
             file, desired, policy_for_name_collision(batch.policy, context.collision)
         )
         if not context.plan.should_convert:
@@ -902,7 +908,7 @@ class ImagePanel(ConverterPanel):
 
     @staticmethod
     def _read_source_metadata(file: Path) -> SourceMetadata:
-        with Image.open(file) as probe:
+        with open_supported_image(file) as probe:
             is_animated = bool(
                 getattr(probe, "is_animated", False) and probe.n_frames > 1
             )
@@ -913,12 +919,17 @@ class ImagePanel(ConverterPanel):
                     int(frame.info.get("duration", probe.info.get("duration", 100)))
                     for frame in ImageSequence.Iterator(probe)
                 )
-                if is_animated
+                if is_animated and not animation_too_large(frame_count)
                 else ()
             )
-            width, height = probe.size
+            probe.seek(0)
+            width, height = oriented_dimensions(probe)
             probe_format = probe.format
-        if is_animated and probe_format == "WEBP":
+        if (
+            is_animated
+            and probe_format == "WEBP"
+            and not animation_too_large(frame_count)
+        ):
             parsed_durations = webp_frame_durations(file)
             if len(parsed_durations) == frame_count:
                 frame_durations = parsed_durations
@@ -959,8 +970,8 @@ class ImagePanel(ConverterPanel):
             try:
                 newest = max(
                     child.stat().st_mtime_ns
-                    for child in existing.rglob("*")
-                    if child.is_file()
+                    for child in existing.iterdir()
+                    if not child.is_symlink() and child.is_file()
                 )
             except ValueError:
                 newest = existing.stat().st_mtime_ns
@@ -977,24 +988,41 @@ class ImagePanel(ConverterPanel):
                     warnings=context.warnings,
                     animation_mode=batch.animation_policy.value,
                 )
-        if existing is not None and policy is OutputPolicy.OVERWRITE:
-            shutil.rmtree(existing)
-
-        with Image.open(file) as animation:
-            frame_root, frames, checksum_warnings, resolved_mode = (
-                self.extract_animation_frames(
-                    animation,
-                    file,
-                    desired,
-                    batch.image_format,
-                    batch.extension,
-                    batch.quality,
-                    batch.requested_mode,
-                    batch.resize_config,
-                    batch.generate_report,
-                    metadata.frame_durations,
+        overwrite = existing is not None and policy in {
+            OutputPolicy.OVERWRITE,
+            OutputPolicy.SOURCE_NEWER,
+        }
+        frame_root = existing if overwrite else frame_directory(desired_dir)
+        with TemporaryDirectory(prefix=".frame-export-", dir=desired.parent) as stage:
+            staged = Path(stage) / "frames"
+            staged.mkdir()
+            with open_supported_image(file) as animation:
+                _, frames, checksum_warnings, resolved_mode = (
+                    self.extract_animation_frames(
+                        animation,
+                        file,
+                        staged,
+                        batch.image_format,
+                        batch.extension,
+                        batch.quality,
+                        batch.requested_mode,
+                        batch.resize_config,
+                        batch.generate_report,
+                        metadata.frame_durations,
+                    )
                 )
+            if self.cancel_event.is_set():
+                raise BatchCancelled()
+            publish_frame_directory(staged, frame_root, overwrite)
+        frames = tuple(
+            FrameResult(
+                frame_root / frame.output_path.name,
+                frame.duration_ms,
+                frame.output_bytes,
+                frame.sha256,
             )
+            for frame in frames
+        )
         output_bytes = sum(frame.output_bytes for frame in frames)
         output_width, output_height = calculate_resize_dimensions(
             metadata.width, metadata.height, batch.resize_config
@@ -1019,9 +1047,13 @@ class ImagePanel(ConverterPanel):
             processing_seconds=time.monotonic() - context.started,
             encoder_mode=resolved_mode.value if resolved_mode else None,
             output_action=(
-                OutputAction.RENAME.value
-                if frame_root.name != f"{desired.stem}_frames"
-                else OutputAction.CONVERT.value
+                OutputAction.OVERWRITE.value
+                if overwrite
+                else (
+                    OutputAction.RENAME.value
+                    if frame_root != desired_dir
+                    else OutputAction.CONVERT.value
+                )
             ),
             name_collision=context.collision,
             warnings=context.warnings
@@ -1061,9 +1093,8 @@ class ImagePanel(ConverterPanel):
                 ),
             )
 
-        with Image.open(file) as image:
-            oriented = ImageOps.exif_transpose(image)
-            source_width, source_height = oriented.size
+        with open_supported_image(file) as image:
+            source_width, source_height = oriented_dimensions(image)
             output_width, output_height = calculate_resize_dimensions(
                 source_width, source_height, batch.resize_config
             )
@@ -1081,6 +1112,8 @@ class ImagePanel(ConverterPanel):
                 batch.resize_config,
                 metadata.frame_durations,
             )
+        if self.cancel_event.is_set():
+            raise BatchCancelled()
         commit_output(context.plan)
         output_bytes = safe_file_size(context.plan.target)
         size_warnings = tuple(

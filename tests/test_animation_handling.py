@@ -189,6 +189,47 @@ class AnimationHandlingTests(unittest.TestCase):
         self.assertEqual(result.output_path.name, "animated_frames_2")
         self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
 
+    def test_overwrite_keeps_existing_frames_if_cancelled(self) -> None:
+        existing = self.root / "convertidos_png" / "animated_frames"
+        existing.mkdir(parents=True)
+        original = existing / "frame_0001.png"
+        original.write_bytes(b"previous export")
+        panel, completion = make_panel()
+        real_save = panel.save_image
+
+        def cancel_after_saving(*args):
+            saved = real_save(*args)
+            panel.cancel_event.set()
+            return saved
+
+        panel.save_image = cancel_after_saving
+        panel.convert_batch(
+            self.root,
+            [self.source],
+            "PNG",
+            85,
+            options={"animation_mode": "extract_frames", "output_policy": "overwrite"},
+        )
+        self.assertTrue(completion["cancelled"])
+        self.assertEqual(original.read_bytes(), b"previous export")
+        self.assertEqual(list(existing.parent.iterdir()), [existing])
+
+    def test_overwrite_leaves_unrelated_files_intact(self) -> None:
+        existing = self.root / "convertidos_png" / "animated_frames"
+        existing.mkdir(parents=True)
+        marker = existing / "notes.txt"
+        marker.write_bytes(b"keep")
+        panel, completion = make_panel()
+        panel.convert_batch(
+            self.root,
+            [self.source],
+            "PNG",
+            85,
+            options={"animation_mode": "extract_frames", "output_policy": "overwrite"},
+        )
+        self.assertEqual(completion["results"][0].status.value, "failed")
+        self.assertEqual(marker.read_bytes(), b"keep")
+
     def test_animated_webp_input_is_detected_when_supported(self) -> None:
         if not animation_supported("WEBP"):
             self.skipTest("Animated WebP is unavailable in this Pillow build")

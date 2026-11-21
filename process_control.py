@@ -4,10 +4,41 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 PROCESS_STOP_SECONDS = 2
 PROCESS_KILL_SECONDS = 3
+MEDIA_DEMUXERS = "aac,asf,avi,flac,matroska,webm,mov,mp4,m4a,mp3,mpeg,mpegts,ogg,wav"
+
+
+def local_media_input(source: Path) -> list[str]:
+    """Allow single-file media demuxers and the local file protocol."""
+    return [
+        "-protocol_whitelist",
+        "file",
+        "-format_whitelist",
+        MEDIA_DEMUXERS,
+        "-i",
+        str(source),
+    ]
+
+
+def ffmpeg_transcode_args(source: Path) -> list[str]:
+    return [
+        "-nostdin",
+        "-hide_banner",
+        "-xerror",
+        "-abort_on",
+        "empty_output",
+        "-y",
+        *local_media_input(source),
+        "-map_metadata",
+        "0",
+        "-progress",
+        "pipe:2",
+        "-nostats",
+    ]
 
 
 def creation_flags() -> int:
@@ -34,14 +65,16 @@ def stop_process(process: subprocess.Popen[Any] | None, *, tree: bool = False) -
     if tree:
         _kill_tree(process)
         return
-    process.terminate()
     try:
+        process.terminate()
         process.wait(timeout=PROCESS_STOP_SECONDS)
         return
     except (subprocess.TimeoutExpired, OSError):
         pass
-    process.kill()
+    if process.poll() is not None:
+        return
     try:
+        process.kill()
         process.wait(timeout=PROCESS_KILL_SECONDS)
     except (subprocess.TimeoutExpired, OSError):
         _kill_tree(process)

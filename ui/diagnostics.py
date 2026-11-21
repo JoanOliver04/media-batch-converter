@@ -16,10 +16,12 @@ class DiagnosticsPanel(ttk.Frame):
         ttk.Label(
             self, text=t("ui.diagnostics.heading"), font=("Segoe UI", 18, "bold")
         ).pack(anchor="w", pady=(0, 14))
+        body = ttk.Frame(self)
+        body.pack(fill="both", expand=True)
         self.text = Text(
-            self,
+            body,
             wrap="word",
-            height=22,
+            height=1,
             width=1,
             font=FONT_DATA,
             background=PANEL,
@@ -32,7 +34,10 @@ class DiagnosticsPanel(ttk.Frame):
             pady=12,
         )
         self.text.configure(highlightbackground=LINE)
-        self.text.pack(fill="both", expand=True)
+        self.text.pack(side="left", fill="both", expand=True)
+        scrollbar = ttk.Scrollbar(body, orient="vertical", command=self.text.yview)
+        scrollbar.pack(side="right", fill="y")
+        self.text.configure(yscrollcommand=scrollbar.set)
         actions = ttk.Frame(self)
         actions.pack(anchor="e", pady=(12, 0))
         ttk.Button(actions, text=t("ui.button.refresh"), command=self.refresh).pack(

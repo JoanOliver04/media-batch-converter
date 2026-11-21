@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from i18n import t
-from process_control import text_kwargs
+from process_control import ffmpeg_transcode_args, local_media_input, text_kwargs
 
 ASPECT_MODES = {"preserve", "fit", "fill", "stretch"}
 CONTAINER_VIDEO_CODECS = {
@@ -59,6 +59,10 @@ class VideoSettings:
     faststart: bool = False
     max_size_mb: int | None = None
 
+    @property
+    def max_size_bytes(self) -> int | None:
+        return None if self.max_size_mb is None else self.max_size_mb * 1024 * 1024
+
 
 def validate_video_settings(container: str, settings: VideoSettings) -> None:
     normalized = container.upper()
@@ -91,6 +95,8 @@ def validate_video_settings(container: str, settings: VideoSettings) -> None:
         raise ValueError(t("video.mode_requires_resolution"))
     if settings.fps_cap is not None and settings.fps_cap <= 0:
         raise ValueError(t("video.fps_positive"))
+    if settings.max_size_mb is not None and settings.max_size_mb <= 0:
+        raise ValueError(t("ui.validate.max_size_positive"))
     if not 0 <= settings.crf <= 63:
         raise ValueError(t("video.crf_invalid"))
     if not re.fullmatch(
@@ -110,10 +116,11 @@ def build_video_filter(settings: VideoSettings) -> str:
             "force_original_aspect_ratio=decrease:force_divisible_by=2"
         )
     elif settings.aspect_mode == "fit":
+        even_width, even_height = _even(width), _even(height)
         filters.extend(
             (
-                f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2",
-                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color={settings.background}",
+                f"scale={even_width}:{even_height}:force_original_aspect_ratio=decrease:force_divisible_by=2",
+                f"pad={even_width}:{even_height}:(ow-iw)/2:(oh-ih)/2:color={settings.background}",
             )
         )
     elif settings.aspect_mode == "fill":
@@ -137,15 +144,19 @@ def build_video_args(container: str, settings: VideoSettings) -> list[str]:
     args = [
         "-c:v",
         settings.video_codec,
-        "-crf",
-        str(settings.crf),
+        "-pix_fmt",
+        settings.pixel_format,
         "-vf",
         build_video_filter(settings),
     ]
+    if settings.video_codec == "mpeg4":
+        args.extend(("-q:v", str(max(1, min(31, round(settings.crf / 2))))))
+    else:
+        args.extend(("-crf", str(settings.crf)))
     if settings.video_codec == "libx264":
-        args.extend(("-preset", "slow", "-pix_fmt", settings.pixel_format))
+        args.extend(("-preset", "slow"))
     elif settings.video_codec == "libvpx-vp9":
-        args.extend(("-b:v", "0", "-pix_fmt", settings.pixel_format))
+        args.extend(("-b:v", "0"))
     if settings.remove_audio:
         args.append("-an")
     else:
@@ -153,8 +164,8 @@ def build_video_args(container: str, settings: VideoSettings) -> list[str]:
         args.extend(("-b:a", "160k" if settings.audio_codec == "libopus" else "192k"))
     if settings.faststart and container.upper() in {"MP4", "MOV"}:
         args.extend(("-movflags", "+faststart"))
-    if settings.max_size_mb is not None:
-        args.extend(("-fs", str(int(settings.max_size_mb) * 1024 * 1024)))
+    if settings.max_size_bytes is not None:
+        args.extend(("-fs", str(settings.max_size_bytes)))
     return args
 
 
@@ -163,14 +174,7 @@ def build_video_command(
 ) -> list[str]:
     return [
         ffmpeg,
-        "-y",
-        "-i",
-        str(source),
-        "-map_metadata",
-        "0",
-        "-progress",
-        "pipe:2",
-        "-nostats",
+        *ffmpeg_transcode_args(source),
         *build_video_args(container, settings),
         str(output),
     ]
@@ -199,7 +203,7 @@ def parse_duration(text: str) -> float | None:
 def probe_media(ffmpeg: str, source: Path) -> tuple[float | None, bool]:
     """Return duration and whether an audio stream is present."""
     completed = subprocess.run(
-        [ffmpeg, "-hide_banner", "-i", str(source)],
+        [ffmpeg, "-nostdin", "-hide_banner", *local_media_input(source)],
         capture_output=True,
         timeout=15,
         check=False,

@@ -127,6 +127,22 @@ class DiscoveryTests(unittest.TestCase):
         destination = safe_output_directory(output, self.root, source)
         self.assertEqual(destination, output / "nested" / "deep")
 
+    def test_output_root_junction_is_rejected(self) -> None:
+        if sys.platform != "win32":
+            self.skipTest("junctions are a Windows feature")
+        import _winapi
+
+        source = self.touch("asset.png")
+        target = self.root / "elsewhere"
+        target.mkdir()
+        linked = self.root / "convertidos_webp"
+        try:
+            _winapi.CreateJunction(str(target), str(linked))
+        except OSError as error:
+            self.skipTest(str(error))
+        with self.assertRaises(ValueError):
+            safe_output_directory(linked, self.root, source)
+
 
 class ImageBatchTests(unittest.TestCase):
     def test_nested_structure_and_invalid_file_do_not_stop_batch(self) -> None:

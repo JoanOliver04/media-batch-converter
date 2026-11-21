@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from tkinter import BooleanVar, StringVar, Tk, ttk
 
-from batch_processing import remove_if_empty
 from conversion_results import FileResult, ResultStatus, safe_file_size
 from documents.conversion import convert_document
 from documents.errors import DocumentError
@@ -26,10 +25,10 @@ from i18n import t
 from output_policy import (
     OutputAction,
     OutputPlan,
+    OutputPlanner,
     OutputPolicy,
     cleanup_temporary,
     commit_output,
-    plan_output,
     policy_for_name_collision,
 )
 from presets import (
@@ -39,7 +38,7 @@ from presets import (
     preset_by_id,
 )
 from ui.base import BatchCancelled, ConverterPanel
-from ui.formats import batch_name_collision_keys, desired_output_path
+from ui.formats import batch_name_collision_keys, batch_output_root, desired_output_path
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
@@ -48,6 +47,7 @@ logging.getLogger(__name__).addHandler(logging.NullHandler())
 class DocumentBatch:
     source_root: Path
     destination: Path
+    planner: OutputPlanner
     extension: str
     output_format: str
     settings: DocumentSettings
@@ -75,9 +75,14 @@ class DocumentPanel(ConverterPanel):
         "libreoffice": "ui.document.help.libreoffice",
     }
 
-    def __init__(self, parent, root: Tk) -> None:
+    def __init__(self, parent, root: Tk, footer_parent=None) -> None:
         super().__init__(
-            parent, root, t("ui.title.document"), DOCUMENT_EXTENSIONS, DOCUMENT_FORMATS
+            parent,
+            root,
+            t("ui.title.document"),
+            DOCUMENT_EXTENSIONS,
+            DOCUMENT_FORMATS,
+            footer_parent,
         )
         self._hide_quality_controls()
         self._applying_preset = False
@@ -125,13 +130,10 @@ class DocumentPanel(ConverterPanel):
         ).grid(row=1, column=2, columnspan=3, pady=(10, 0), sticky="w")
         self.preset_selector.bind("<<ComboboxSelected>>", self.apply_selected_preset)
 
-        for row in range(6, 3, -1):
-            for widget in self.grid_slaves(row=row):
-                widget.grid_configure(row=row + 1)
         self.document_advanced = ttk.LabelFrame(
-            self, text=t("ui.frame.document"), padding=(10, 7)
+            self.encoding_column, text=t("ui.frame.document"), padding=12
         )
-        self.document_advanced.grid(row=4, column=0, sticky="ew", pady=(0, 12))
+        self.document_advanced.grid(row=1, column=0, sticky="ew", pady=(0, 12))
         ttk.Label(self.document_advanced, text=t("ui.label.engine")).grid(
             row=0, column=0
         )
@@ -272,8 +274,8 @@ class DocumentPanel(ConverterPanel):
             validate_document_settings(self.current_document_settings())
         except ValueError as error:
             return str(error)
-        selected = Path(self.selection.get())
-        if selected.is_file():
+        selected = self.single_source()
+        if selected is not None:
             source_format = format_from_path(selected)
             if source_format is None:
                 return t("document.unknown_extension")
@@ -319,12 +321,13 @@ class DocumentPanel(ConverterPanel):
         settings = options.get("document_settings")
         if not isinstance(settings, DocumentSettings):
             settings = DocumentSettings()
-        destination = source_root / f"convertidos_{output_format.lower()}"
+        destination = batch_output_root(source_root, output_format, options)
         normalize = bool(options.get("normalize_filenames", False))
         extension = DOCUMENT_FORMATS[output_format]
         batch = DocumentBatch(
             source_root=source_root,
             destination=destination,
+            planner=OutputPlanner(),
             extension=extension,
             output_format=output_format,
             settings=settings,
@@ -360,7 +363,7 @@ class DocumentPanel(ConverterPanel):
         discovery_errors: list[str],
         cancelled: bool,
     ) -> None:
-        remove_if_empty(batch.destination)
+        batch.planner.prune_empty_directories()
         self.root.after(
             0,
             self.finish_results,
@@ -399,9 +402,8 @@ class DocumentPanel(ConverterPanel):
                 batch.extension,
                 batch.normalize,
             )
-            desired.parent.mkdir(parents=True, exist_ok=True)
             collision = path_key(desired) in batch.name_collisions
-            plan = plan_output(
+            plan = batch.planner.plan(
                 source, desired, policy_for_name_collision(batch.policy, collision)
             )
             if not plan.should_convert:
@@ -429,6 +431,8 @@ class DocumentPanel(ConverterPanel):
                 self.cancel_event,
                 office,
             )
+            if self.cancel_event.is_set():
+                raise BatchCancelled()
             commit_output(plan)
             checksum, checksum_warnings = self.checksum_for_report(
                 plan.target, batch.generate_report

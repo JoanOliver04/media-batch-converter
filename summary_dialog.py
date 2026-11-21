@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
-from tkinter import Toplevel, ttk
+from tkinter import Toplevel, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
+from batch_processing import is_link
 from conversion_results import BatchSummary, ResultStatus, summary_text
 from i18n import t
 from ui.theme import FONT_DATA, PANEL, SIGNAL, SURFACE, TEXT
@@ -25,6 +28,7 @@ def show_summary(
     window.minsize(560, 420)
     window.transient(parent)
     window.configure(background=SURFACE)
+    window.bind("<Escape>", lambda _event: window.destroy())
 
     frame = ttk.Frame(window, padding=18)
     frame.pack(fill="both", expand=True)
@@ -93,9 +97,25 @@ def show_summary(
         parent.clipboard_append(body)
         parent.update_idletasks()
 
+    def open_output_folder() -> None:
+        try:
+            if is_link(output_root) or not output_root.is_dir():
+                raise OSError(output_root)
+            os.startfile(output_root, "explore")
+        except OSError:
+            messagebox.showwarning(
+                t("summary.window_title"),
+                t("summary.folder_unavailable"),
+                parent=window,
+            )
+
     ttk.Button(actions, text=t("summary.copy_button"), command=copy_summary).pack(
         side="left"
     )
+    if sys.platform == "win32" and output_root.is_dir():
+        ttk.Button(
+            actions, text=t("summary.open_folder"), command=open_output_folder
+        ).pack(side="left", padx=(8, 0))
     ttk.Button(actions, text=t("summary.close_button"), command=window.destroy).pack(
         side="right"
     )
