@@ -111,17 +111,26 @@ class ConverterApp:
         notebook.add(video_tab, text=t("ui.tab.video"))
         notebook.add(document_tab, text=t("ui.tab.files"))
         notebook.add(
-            DiagnosticsPanel(notebook, self.root), text=t("ui.tab.diagnostics")
+            DiagnosticsPanel(notebook, self.root, self._set_media_available),
+            text=t("ui.tab.diagnostics"),
         )
-        if resolve_ffmpeg() is None:
-            unavailable = t("ui.ffmpeg.tabs_disabled")
-            audio_tab.panel.status.set(unavailable)
-            video_tab.panel.status.set(unavailable)
-            notebook.tab(audio_tab, state="disabled")
-            notebook.tab(video_tab, state="disabled")
+        self._set_media_available(resolve_ffmpeg() is not None)
         if missing_document_dependencies():
             document_tab.panel.status.set(t("ui.document.tabs_disabled"))
             notebook.tab(document_tab, state="disabled")
+
+    def _set_media_available(self, available: bool) -> None:
+        for index in (1, 2):
+            panel = self.panels[index]
+            # Keep running conversions accessible, including their Cancel button.
+            if panel.busy:
+                continue
+            self.notebook.tab(index, state="normal" if available else "disabled")
+            if not available:
+                panel.status.set(t("ui.ffmpeg.tabs_disabled"))
+            elif panel.status.get() == t("ui.ffmpeg.tabs_disabled"):
+                panel.status.set(t("ui.status.select_prompt"))
+                panel.restore_sources(panel.selection.get(), panel.selected_files)
 
     def conversion_running(self) -> bool:
         return any(getattr(panel, "busy", False) for panel in self.panels)

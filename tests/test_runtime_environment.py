@@ -8,6 +8,7 @@ from tkinter import TclError, Tk, ttk
 from unittest.mock import Mock, patch
 
 import runtime_environment
+from presets import SettingsStore
 from runtime_environment import (
     FFMPEG_SOURCE_BUNDLED,
     FFMPEG_SOURCE_CONFIGURED,
@@ -33,7 +34,56 @@ def find_notebook(widget) -> ttk.Notebook:
     return None
 
 
-class RuntimeEnvironmentTests(unittest.TestCase):
+class IsolatedSettingsMixin:
+    """Redirige la carpeta de configuración a un temporal.
+
+    Construir un panel real persiste preset y política, así que sin esto los
+    tests reescribirían los ajustes reales del usuario.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        for variable in ("APPDATA", "XDG_CONFIG_HOME"):
+            previous = os.environ.get(variable)
+            os.environ[variable] = temporary.name
+            self.addCleanup(self._restore_environment, variable, previous)
+
+    @staticmethod
+    def _restore_environment(variable: str, previous: str | None) -> None:
+        if previous is None:
+            os.environ.pop(variable, None)
+        else:
+            os.environ[variable] = previous
+
+
+class RuntimeEnvironmentTests(IsolatedSettingsMixin, unittest.TestCase):
+    def test_selected_encoder_persists_and_missing_selection_falls_back(self):
+        root = Path(os.environ["APPDATA"]).resolve()
+        selected = root / "FFmpeg selected.exe"
+        fallback = root / "ffmpeg.exe"
+        selected.touch()
+        fallback.touch()
+        SettingsStore().save_ffmpeg_path(str(selected))
+        with (
+            patch.dict(os.environ, FFMPEG_PATH=str(fallback)),
+            patch(
+                "runtime_environment._ffmpeg_version", return_value="ffmpeg version 9"
+            ),
+        ):
+            self.assertEqual(resolve_ffmpeg().path, selected)
+            selected.unlink()
+            self.assertEqual(resolve_ffmpeg().path, fallback)
+
+    def test_selected_encoder_must_identify_itself(self):
+        selected = Path(os.environ["APPDATA"]).resolve() / "ffmpeg.exe"
+        selected.touch()
+        with patch(
+            "subprocess.run", return_value=Mock(returncode=0, stdout="other tool")
+        ):
+            self.assertIsNone(runtime_environment.selected_ffmpeg(selected))
+
     def test_explicit_absolute_ffmpeg_path_has_priority(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             executable = Path(temporary).resolve() / "ffmpeg.exe"
@@ -155,30 +205,6 @@ class RuntimeEnvironmentTests(unittest.TestCase):
         self.assertNotIn('"pip", "install"', combined)
 
 
-class IsolatedSettingsMixin:
-    """Redirige la carpeta de configuración a un temporal.
-
-    Construir un panel real persiste preset y política, así que sin esto los
-    tests reescribirían los ajustes reales del usuario.
-    """
-
-    def setUp(self) -> None:
-        super().setUp()
-        temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        for variable in ("APPDATA", "XDG_CONFIG_HOME"):
-            previous = os.environ.get(variable)
-            os.environ[variable] = temporary.name
-            self.addCleanup(self._restore_environment, variable, previous)
-
-    @staticmethod
-    def _restore_environment(variable: str, previous: str | None) -> None:
-        if previous is None:
-            os.environ.pop(variable, None)
-        else:
-            os.environ[variable] = previous
-
-
 class AvailabilityUiTests(IsolatedSettingsMixin, unittest.TestCase):
     def test_images_remain_enabled_when_ffmpeg_is_missing(self) -> None:
         try:
@@ -188,7 +214,7 @@ class AvailabilityUiTests(IsolatedSettingsMixin, unittest.TestCase):
             self.skipTest(f"Tk unavailable: {error}")
         try:
             with patch("ui.app.resolve_ffmpeg", return_value=None):
-                ConverterApp(root)
+                app = ConverterApp(root)
             notebook = find_notebook(root)
             tabs = notebook.tabs()
             self.assertEqual(notebook.tab(tabs[0], "state"), "normal")
@@ -196,6 +222,28 @@ class AvailabilityUiTests(IsolatedSettingsMixin, unittest.TestCase):
             self.assertEqual(notebook.tab(tabs[2], "state"), "disabled")
             self.assertEqual(notebook.tab(tabs[3], "state"), "normal")
             self.assertEqual(notebook.tab(tabs[4], "state"), "normal")
+            diagnostics = notebook.nametowidget(tabs[4])
+            info = FFmpegInfo(
+                Path("C:/Tools/ffmpeg.exe"), "selected", "ffmpeg version 9"
+            )
+            with (
+                patch(
+                    "ui.diagnostics.filedialog.askopenfilename",
+                    return_value=str(info.path),
+                ),
+                patch("ui.diagnostics.selected_ffmpeg", return_value=info),
+            ):
+                diagnostics.choose_ffmpeg()
+            self.assertEqual(SettingsStore().load_ffmpeg_path(), str(info.path))
+            self.assertEqual(
+                [app.notebook.tab(i, "state") for i in (1, 2)], ["normal", "normal"]
+            )
+            with patch("ui.diagnostics.resolve_ffmpeg", return_value=None):
+                diagnostics.auto_button.invoke()
+            self.assertEqual(SettingsStore().load_ffmpeg_path(), "")
+            self.assertEqual(
+                [app.notebook.tab(i, "state") for i in (1, 2)], ["disabled", "disabled"]
+            )
         finally:
             root.destroy()
 

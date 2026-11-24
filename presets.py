@@ -320,9 +320,19 @@ class SettingsStore:
     def _read(self) -> dict[str, object]:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError, TypeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return {}
         return data if isinstance(data, dict) else {}
+
+    def _string(self, key: str) -> str:
+        value = self._read().get(key)
+        return value if isinstance(value, str) else ""
+
+    def load_ffmpeg_path(self) -> str:
+        return self._string("ffmpeg_path")
+
+    def save_ffmpeg_path(self, path: str) -> None:
+        self._update("ffmpeg_path", path)
 
     def _update(self, key: str, value: object) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -333,13 +343,13 @@ class SettingsStore:
         temporary.replace(self.path)
 
     def load_last_image_preset(self) -> str:
-        return normalized_preset_id(self._read().get("last_image_preset"))
+        return normalized_preset_id(self._string("last_image_preset"))
 
     def save_last_image_preset(self, preset_id: str) -> None:
         self._update("last_image_preset", normalized_preset_id(preset_id))
 
     def load_output_policy(self) -> str:
-        value = self._read().get("output_policy")
+        value = self._string("output_policy")
         return (
             value
             if value in {"skip", "overwrite", "unique", "source_newer"}
@@ -385,7 +395,7 @@ class SettingsStore:
         self._update("report_absolute_paths", bool(enabled))
 
     def load_last_audio_preset(self) -> str:
-        value = self._read().get("last_audio_preset")
+        value = self._string("last_audio_preset")
         audio_ids = {preset.preset_id for preset in AUDIO_PRESETS}
         return value if value in audio_ids else CUSTOM_PRESET_ID
 
@@ -397,7 +407,7 @@ class SettingsStore:
         )
 
     def load_last_video_preset(self) -> str:
-        value = self._read().get("last_video_preset")
+        value = self._string("last_video_preset")
         video_ids = {preset.preset_id for preset in VIDEO_PRESETS}
         return value if value in video_ids else CUSTOM_PRESET_ID
 
@@ -409,7 +419,7 @@ class SettingsStore:
         )
 
     def load_last_document_preset(self) -> str:
-        value = self._read().get("last_document_preset")
+        value = self._string("last_document_preset")
         document_ids = {preset.preset_id for preset in DOCUMENT_PRESETS}
         return value if value in document_ids else CUSTOM_PRESET_ID
 
@@ -421,7 +431,7 @@ class SettingsStore:
         )
 
     def load_animation_mode(self) -> str:
-        value = self._read().get("animation_mode")
+        value = self._string("animation_mode")
         return (
             value
             if value in {"preserve", "extract_frames", "first_frame"}

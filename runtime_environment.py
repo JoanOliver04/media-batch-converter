@@ -31,6 +31,7 @@ FFMPEG_SOURCE_BUNDLED = "bundled"
 FFMPEG_SOURCE_SYSTEM = "system"
 FFMPEG_SOURCE_IMAGEIO = "imageio-ffmpeg"
 FFMPEG_SOURCE_CONFIGURED = "configured"
+FFMPEG_SOURCE_SELECTED = "selected"
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,12 +93,28 @@ def _ffmpeg_version(executable: Path) -> str | None:
     if completed.returncode != 0:
         return None
     first_line = completed.stdout.splitlines()
-    return (
-        first_line[0].strip() if first_line else t("diagnostics.ffmpeg_unknown_version")
-    )
+    if first_line and first_line[0].lower().startswith("ffmpeg version "):
+        return first_line[0].strip()
+    return None
+
+
+def selected_ffmpeg(path: Path) -> FFmpegInfo | None:
+    if sys.platform == "win32" and (
+        not path.name.lower().startswith("ffmpeg") or path.suffix.lower() != ".exe"
+    ):
+        return None
+    if path.is_absolute() and path.is_file() and (version := _ffmpeg_version(path)):
+        return FFmpegInfo(path.resolve(), FFMPEG_SOURCE_SELECTED, version)
+    return None
 
 
 def resolve_ffmpeg() -> FFmpegInfo | None:
+    # Keep the launcher dependency check usable before Pillow is installed.
+    from presets import SettingsStore
+
+    preferred = SettingsStore().load_ffmpeg_path()
+    if preferred and (chosen := selected_ffmpeg(Path(preferred))):
+        return chosen
     configured = os.environ.get("FFMPEG_PATH")
     if configured:
         path = Path(configured)
@@ -134,11 +151,9 @@ def resolve_ffmpeg() -> FFmpegInfo | None:
 
 
 def private_path(path: Path) -> str:
-    text = str(path)
-    home = str(Path.home())
-    if os.path.normcase(text).startswith(os.path.normcase(home)):
-        return "~" + text[len(home) :]
-    return text
+    if path.is_relative_to(Path.home()):
+        return str(Path("~") / path.relative_to(Path.home()))
+    return str(path)
 
 
 def ffmpeg_source_label(source: str) -> str:
@@ -148,10 +163,15 @@ def ffmpeg_source_label(source: str) -> str:
         FFMPEG_SOURCE_SYSTEM: t("diagnostics.source.system"),
         FFMPEG_SOURCE_IMAGEIO: t("diagnostics.source.imageio"),
         FFMPEG_SOURCE_CONFIGURED: t("diagnostics.source.configured"),
+        FFMPEG_SOURCE_SELECTED: t("diagnostics.source.selected"),
     }.get(source, source)
 
 
 def diagnostics_text(ffmpeg: FFmpegInfo | None = None) -> str:
+    return render_diagnostics(ffmpeg or resolve_ffmpeg())
+
+
+def render_diagnostics(ffmpeg: FFmpegInfo | None) -> str:
     unavailable = t("diagnostics.unavailable")
     try:
         pillow = importlib.import_module("PIL").__version__
@@ -171,7 +191,6 @@ def diagnostics_text(ffmpeg: FFmpegInfo | None = None) -> str:
         imageio_version = importlib.import_module("imageio_ffmpeg").__version__
     except ImportError:
         imageio_version = t("diagnostics.imageio_unavailable")
-    ffmpeg = ffmpeg if ffmpeg is not None else resolve_ffmpeg()
     packaged = t("diagnostics.packaged_suffix") if getattr(sys, "frozen", False) else ""
     document_versions = []
     for import_name, distribution in DOCUMENT_PYTHON_DEPENDENCIES:

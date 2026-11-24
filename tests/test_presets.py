@@ -75,6 +75,45 @@ class PresetModelTests(unittest.TestCase):
 
 
 class SettingsTests(unittest.TestCase):
+    def test_malformed_preferences_keep_the_panels_usable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "settings.json"
+            store = SettingsStore(path)
+            path.write_bytes(b"\xff\xfe\xff")
+            self.assertEqual(store.load_last_image_preset(), CUSTOM_PRESET_ID)
+            path.write_text(
+                json.dumps(
+                    dict.fromkeys(
+                        (
+                            "last_image_preset",
+                            "last_audio_preset",
+                            "last_video_preset",
+                            "last_document_preset",
+                            "animation_mode",
+                            "output_policy",
+                            "ffmpeg_path",
+                        ),
+                        [],
+                    )
+                ),
+                encoding="utf-8",
+            )
+            for load in (
+                store.load_last_image_preset,
+                store.load_last_audio_preset,
+                store.load_last_video_preset,
+                store.load_last_document_preset,
+            ):
+                self.assertEqual(load(), CUSTOM_PRESET_ID)
+            self.assertEqual(
+                (
+                    store.load_animation_mode(),
+                    store.load_output_policy(),
+                    store.load_ffmpeg_path(),
+                ),
+                ("preserve", "skip", ""),
+            )
+
     def test_round_trip_and_unknown_preset_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary).resolve() / "settings.json"

@@ -4,6 +4,11 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 ## Unreleased
 
+## 0.4.1 - 2026-11-24
+
+- Choose a local FFmpeg executable in Diagnostics to enable Audio and Video immediately. The app remembers the choice and can switch back to automatic detection.
+- Recover the default settings when the preferences file contains invalid text or an unexpected preset value.
+
 ## 0.4.0 - 2026-11-24
 
 - Review a batch before converting. Search relative paths, include or exclude files across pages, and see the selected input size.

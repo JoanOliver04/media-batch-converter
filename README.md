@@ -6,15 +6,13 @@ Convert and optimize images, audio, video, and documents on your desktop. Proces
 
 ## Download and install on Windows
 
-**Media Batch Converter 0.3.0 for Windows x64** · [Download ZIP](https://github.com/JoanOliver04/media-batch-converter/releases/download/v0.3.0/MediaBatchConverter-0.3.0-windows-x64.zip) · [SHA-256](https://github.com/JoanOliver04/media-batch-converter/releases/download/v0.3.0/MediaBatchConverter-0.3.0-windows-x64.zip.sha256) · [Release notes](https://github.com/JoanOliver04/media-batch-converter/releases/tag/v0.3.0)
+**Media Batch Converter 0.4.1 for Windows x64** · [Download ZIP](https://github.com/JoanOliver04/media-batch-converter/releases/download/v0.4.1/MediaBatchConverter-0.4.1-windows-x64.zip) · [SHA-256](https://github.com/JoanOliver04/media-batch-converter/releases/download/v0.4.1/MediaBatchConverter-0.4.1-windows-x64.zip.sha256) · [Release notes](https://github.com/JoanOliver04/media-batch-converter/releases/tag/v0.4.1)
 
-1. Compare the checksum with the result of `Get-FileHash -Algorithm SHA256 .\MediaBatchConverter-0.3.0-windows-x64.zip` in PowerShell.
+1. Compare the checksum with the result of `Get-FileHash -Algorithm SHA256 .\MediaBatchConverter-0.4.1-windows-x64.zip` in PowerShell.
 2. Extract the complete ZIP and open `MediaBatchConverter.exe`. Keep the `_internal` folder beside it. The portable executable is unsigned, so Windows may show a reputation warning.
-3. Images and documents work immediately. For audio and video, download a [Windows FFmpeg build](https://ffmpeg.org/download.html#build-windows). Put its `bin\ffmpeg.exe` in an `ffmpeg` folder beside the app and restart. An installation on `PATH` or an absolute `FFMPEG_PATH` also works. The **Diagnostics** tab shows which executable is active.
+3. Images and documents work immediately. For audio and video, download a [Windows FFmpeg build](https://ffmpeg.org/download.html#build-windows). Open **Diagnostics → Choose FFmpeg** and select its `bin\ffmpeg.exe`. Audio and Video become available immediately. An installation on `PATH` or an absolute `FFMPEG_PATH` also works. The **Diagnostics** tab shows which executable is active.
 
 To create a desktop shortcut, right-click the executable and choose **Show more options → Send to → Desktop (create shortcut)**.
-
-Batch review and searchable results are available in the 0.4.0 source. See [Build the Windows executable](#build-the-windows-executable) to create the updated portable app locally.
 
 ## Screenshots
 
@@ -235,10 +233,13 @@ Optional reports record public settings, final resolved output paths, per-file s
 
 FFmpeg is resolved in this order:
 
-1. The trusted executable at the absolute path in `FFMPEG_PATH`, if configured.
-2. An `ffmpeg` directory beside the executable, then the internal packaged directory.
-3. The executable provided by `imageio-ffmpeg`.
-4. An `ffmpeg` command on `PATH`.
+1. The executable saved through **Diagnostics → Choose FFmpeg**, if available.
+2. The executable at the absolute path in `FFMPEG_PATH`, if configured.
+3. An `ffmpeg` directory beside the executable, then the internal packaged directory.
+4. The executable provided by `imageio-ffmpeg`.
+5. An `ffmpeg` command on `PATH`.
+
+**Use automatic detection** clears the saved choice. **Refresh** checks again after you place an encoder beside the app.
 
 Images and documents stay available when FFmpeg is missing. The Diagnostics tab shows the selected FFmpeg provider, LibreOffice if present, and anonymized paths. Audio and video conversion accepts local files through the supported media demuxers. FFmpeg reports progress for both media types, and cancellation cleans up staged outputs. Fitted, cropped and stretched video sizes are made even for `yuv420p`. With **Max MiB** enabled, the encoder processes the full clip. An oversized result is discarded before publication and the file details suggest settings to change.
 
@@ -329,7 +330,7 @@ Audio and video share `FFmpegPanel` rather than one inheriting from the other. C
 ## Troubleshooting
 
 - Pillow missing: activate the intended environment and run `python -m pip install -r requirements.txt`.
-- Audio or video disabled: install project dependencies or place a working FFmpeg on `PATH`, then restart.
+- If Audio or Video is disabled, open **Diagnostics → Choose FFmpeg** and select a local `ffmpeg.exe`. To recheck an encoder placed beside the app, use **Refresh**.
 - Codec unavailable: inspect the Diagnostics tab and choose a format supported by that FFmpeg build.
 - Tkinter unavailable: reinstall official Python for Windows with Tcl/Tk enabled.
 - Permission or disk-space error: choose a writable source location with enough free space.
