@@ -7,7 +7,6 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 from tkinter import StringVar, Toplevel, messagebox, ttk
-from tkinter.scrolledtext import ScrolledText
 
 from batch_processing import is_link
 from conversion_results import (
@@ -15,13 +14,16 @@ from conversion_results import (
     FileResult,
     ResultStatus,
     format_bytes,
+    format_duration,
+    outcome_counts,
     summary_text,
 )
 from i18n import t
 from image_validation import ImageWarning
-from ui.theme import FONT_BODY, PANEL, SIGNAL, SURFACE, TEXT
+from ui.file_list import FileTable, search_key
+from ui.theme import SURFACE
+from ui.widgets import readout, set_readout
 
-PAGE_SIZE = 100
 STATUS_KEYS = {
     ResultStatus.CONVERTED: "summary.converted",
     ResultStatus.SKIPPED: "summary.skipped",
@@ -64,32 +66,11 @@ def file_details(result: FileResult) -> str:
     return "\n".join(lines)
 
 
-def readout(parent, height: int) -> ScrolledText:
-    widget = ScrolledText(
-        parent,
-        wrap="word",
-        height=height,
-        width=1,
-        font=FONT_BODY,
-        background=PANEL,
-        foreground=TEXT,
-        insertbackground=SIGNAL,
-        relief="flat",
-        borderwidth=0,
-        padx=10,
-        pady=8,
-    )
-    widget.vbar.configure(
-        background=PANEL, troughcolor=SURFACE, activebackground=SIGNAL, borderwidth=0
-    )
-    return widget
-
-
-def set_readout(widget: ScrolledText, value: str) -> None:
-    widget.configure(state="normal")
-    widget.delete("1.0", "end")
-    widget.insert("1.0", value)
-    widget.configure(state="disabled")
+def savings_text(result: FileResult) -> str:
+    if result.status is not ResultStatus.CONVERTED:
+        return "—"
+    sign = "−" if result.bytes_saved < 0 else ""
+    return sign + format_bytes(result.bytes_saved)
 
 
 class FileResults(ttk.Frame):
@@ -99,8 +80,8 @@ class FileResults(ttk.Frame):
         super().__init__(parent, padding=10)
         self.results = summary.results
         self.source_root = source_root
-        self.page = 0
-        self.matches = self.results
+        self.paths = tuple(self.display_path(item) for item in self.results)
+        self.search_paths = tuple(search_key(path) for path in self.paths)
         self.filters = {t("summary.filter.all"): None}
         self.filters.update({t(label): status for status, label in STATUS_KEYS.items()})
 
@@ -114,89 +95,55 @@ class FileResults(ttk.Frame):
         self.filter.pack(side="left")
         self.filter.bind("<<ComboboxSelected>>", self.apply_filter)
 
-        listing = ttk.Frame(self)
-        listing.pack(fill="both", expand=True)
-        self.table = ttk.Treeview(
-            listing,
-            columns=("source", "status"),
-            show="headings",
-            selectmode="browse",
-            height=5,
-            style="Results.Treeview",
+        ttk.Label(bar, text=t("ui.label.search_path")).pack(side="left", padx=(14, 6))
+        self.query = StringVar(self)
+        self.search = ttk.Entry(bar, textvariable=self.query, width=14)
+        self.search.pack(side="left", fill="x", expand=True)
+        self.query.trace_add("write", self.apply_filter)
+        self.listing = FileTable(
+            self,
+            (
+                ("source", t("summary.file_source"), 330),
+                ("status", t("summary.state"), 125),
+                ("saved", t("summary.space_saved"), 120),
+            ),
+            lambda index: (
+                self.paths[index],
+                t(FILE_STATUS_KEYS[self.results[index].status]),
+                savings_text(self.results[index]),
+            ),
         )
-        self.table.heading("source", text=t("summary.file_source"), anchor="w")
-        self.table.heading("status", text=t("summary.state"), anchor="w")
-        self.table.column("source", width=330, minwidth=120)
-        self.table.column("status", width=125, minwidth=105, stretch=False)
-        self.table.pack(side="left", fill="both", expand=True)
-        scrollbar = ttk.Scrollbar(listing, command=self.table.yview)
-        scrollbar.pack(side="right", fill="y")
-        self.table.configure(yscrollcommand=scrollbar.set)
-        self.table.bind("<<TreeviewSelect>>", self.show_details)
-
-        paging = ttk.Frame(self)
-        paging.pack(fill="x", pady=6)
-        self.previous = ttk.Button(
-            paging,
-            text=t("summary.page.previous"),
-            command=lambda: self.show_page(self.page - 1),
-        )
-        self.previous.pack(side="left")
-        self.page_label = StringVar(self)
-        ttk.Label(paging, textvariable=self.page_label, style="Muted.TLabel").pack(
-            side="left", padx=8
-        )
-        self.next = ttk.Button(
-            paging,
-            text=t("summary.page.next"),
-            command=lambda: self.show_page(self.page + 1),
-        )
-        self.next.pack(side="right")
+        self.listing.pack(fill="both", expand=True)
+        self.listing.table.bind("<<TreeviewSelect>>", self.show_details)
         self.details = readout(self, 5)
         self.details.pack(fill="x")
-        self.show_page(0)
+        self.apply_filter()
 
-    def apply_filter(self, _event=None) -> None:
+    def display_path(self, result: FileResult) -> str:
+        path = result.source_path
+        if self.source_root and path.is_relative_to(self.source_root):
+            path = path.relative_to(self.source_root)
+        return str(path)
+
+    def apply_filter(self, *_args) -> None:
         status = self.filters[self.filter.get()]
-        self.matches = (
-            self.results
-            if status is None
-            else tuple(item for item in self.results if item.status is status)
-        )
-        self.show_page(0)
-
-    def show_page(self, page: int) -> None:
-        self.page = page
-        start = page * PAGE_SIZE
-        self.table.delete(*self.table.get_children())
-        for index, item in enumerate(self.matches[start : start + PAGE_SIZE], start):
-            path = item.source_path
-            if self.source_root and path.is_relative_to(self.source_root):
-                path = path.relative_to(self.source_root)
-            self.table.insert(
-                "",
-                "end",
-                iid=str(index),
-                values=(str(path), t(FILE_STATUS_KEYS[item.status])),
-            )
-        if start < len(self.matches):
-            self.table.selection_set(str(start))
-            self.table.focus(str(start))
+        query = search_key(self.query.get().strip())
+        rows = range(len(self.results))
+        if status is not None or query:
+            rows = [
+                index
+                for index in rows
+                if (status is None or self.results[index].status is status)
+                and query in self.search_paths[index]
+            ]
+        self.listing.set_rows(rows)
         self.show_details()
-        end = min(len(self.matches), start + PAGE_SIZE)
-        self.page_label.set(
-            t("summary.page.range", first=start + 1, last=end, total=len(self.matches))
-            if end
-            else t("summary.page.empty")
-        )
-        self.previous.configure(state="normal" if page else "disabled")
-        self.next.configure(state="normal" if end < len(self.matches) else "disabled")
 
     def show_details(self, _event=None) -> None:
-        selection = self.table.selection()
+        index = self.listing.selected()
         body = (
-            file_details(self.matches[int(selection[0])])
-            if selection
+            file_details(self.results[index])
+            if index is not None
             else t("summary.page.empty")
         )
         set_readout(self.details, body)
@@ -241,18 +188,64 @@ def show_summary(
     files = FileResults(notebook, summary, source_root)
     notebook.add(overview, text=t("summary.tab.overview"))
     notebook.add(files, text=t("summary.details_heading"))
-    body = summary_text(summary) + f"\n{t('summary.output_folder')}: {output_root}\n"
+
+    def find_file(_event):
+        notebook.select(files)
+        files.search.focus_set()
+        files.search.selection_range(0, "end")
+        return "break"
+
+    window.bind("<Control-f>", find_file)
+    if summary.converted:
+        saved = summary.bytes_saved
+        label = t("summary.space_saved" if saved >= 0 else "summary.size_increase")
+        metric = f"{label} · {format_bytes(abs(saved))}"
+        percentage = summary.percentage_reduction
+        if percentage is not None:
+            metric += f" ({abs(percentage):.1f}%)"
+        ttk.Label(
+            overview,
+            text=metric,
+            style="Readout.TLabel",
+        ).pack(anchor="w")
+        ttk.Label(
+            overview,
+            text=t(
+                "summary.converted_sizes",
+                before=format_bytes(summary.converted_original_bytes),
+                after=format_bytes(summary.output_bytes),
+            ),
+            style="Muted.TLabel",
+        ).pack(anchor="w", pady=(2, 8))
+    notes = [f"{t('summary.output_folder')}: {output_root}"]
     if report_file is not None:
-        body += f"{t('summary.json_report')}: {report_file}\n"
+        notes.append(f"{t('summary.json_report')}: {report_file}")
     if summary.operation_warnings:
-        body += f"\n{t('summary.operation_warnings_heading')}\n" + "\n".join(
-            summary.operation_warnings
+        notes.extend(
+            ("", t("summary.operation_warnings_heading"), *summary.operation_warnings)
         )
-    for error in summary.discovery_errors:
-        body += f"\n{t('summary.discovery_prefix')}: {error}"
+    notes.extend(
+        f"{t('summary.discovery_prefix')}: {error}"
+        for error in summary.discovery_errors
+    )
+    state = t(
+        "summary.state.cancelled" if summary.cancelled else "summary.state.completed"
+    )
+    activity = t(
+        "summary.activity",
+        state=state,
+        processed=summary.files_processed,
+        total=summary.files_discovered,
+        time=format_duration(summary.elapsed_seconds),
+    )
+    breakdown = [
+        f"{t(key).lstrip(' -')}: {count}"
+        for key, count in outcome_counts(summary)
+        if count
+    ]
     content = readout(overview, 8)
     content.pack(fill="both", expand=True)
-    set_readout(content, body)
+    set_readout(content, "\n".join([activity, "", *breakdown, "", *notes]).strip())
 
     actions = ttk.Frame(frame)
     actions.pack(fill="x", pady=(10, 0))
@@ -265,6 +258,7 @@ def show_summary(
             or result.warnings
             or result.name_collision
         )
+        body = "\n".join([summary_text(summary), *notes])
         parent.clipboard_clear()
         parent.clipboard_append(
             "\n\n".join(part for part in (body, "\n\n".join(noteworthy)) if part)

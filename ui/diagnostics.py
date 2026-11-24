@@ -46,6 +46,10 @@ class DiagnosticsPanel(ttk.Frame):
         ttk.Button(
             actions, text=t("ui.button.copy_diagnostics"), command=self.copy
         ).pack(side="left")
+        self.bind("<Map>", self._first_open)
+
+    def _first_open(self, _event) -> None:
+        self.unbind("<Map>")
         self.refresh()
 
     def refresh(self) -> None:

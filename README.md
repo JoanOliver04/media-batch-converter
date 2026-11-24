@@ -14,7 +14,15 @@ Convert and optimize images, audio, video, and documents on your desktop. Proces
 
 To create a desktop shortcut, right-click the executable and choose **Show more options → Send to → Desktop (create shortcut)**.
 
+Batch review and searchable results are available in the 0.4.0 source. See [Build the Windows executable](#build-the-windows-executable) to create the updated portable app locally.
+
 ## Screenshots
+
+### Choose which files to convert
+
+The review below includes three assets and leaves out a draft. The total covers the included source files.
+
+![Batch review listing relative paths, sizes and inclusion for a sample folder](docs/screenshots/batch-review.png)
 
 ### Review the space each batch saved
 
@@ -79,14 +87,17 @@ Exact codec availability depends on the Pillow and FFmpeg builds in use. Transpa
 3. For folders, choose whether to include subfolders.
 4. Select an output format and preset or manual settings.
 5. Review the output folder and choose the existing-file policy and optional report settings.
-6. Start conversion and review the summary. Use **Last results** to reopen it later.
+6. Choose **Start conversion** to process the whole selection. To work on a subset, choose **Review batch**, include the files you want, then choose **Convert included files**.
+7. Use **Last results** to reopen the summary in the same session.
 
 Outputs are created in a `convertidos_<format>` folder beside the source by default. **Choose folder** uses a different parent and keeps the format-specific subfolder. Existing `converted_*` and `convertidos_*` directories, symbolic links, and Windows directory junctions are excluded from recursive discovery. The app removes empty directories created by unsuccessful conversions.
+
+**Review batch** lists file sizes and the total input size of the included files. Searching changes which rows you see. **Include matches** and **Exclude matches** apply across all pages of the current search. Double-click a row or press Space to change one file. Closing the review leaves the source selection available for another run.
 
 ## Review and retry a batch
 
 - **Overview** shows totals, elapsed time, size changes, the output folder, and any report or discovery warnings.
-- **Files** lists converted, skipped and failed files. Use the status filter and page controls to find a file. Select a row to see its paths, size, warnings, and SHA-256 when available.
+- **Files** shows each file's status and measured savings. Press **Ctrl+F** in the summary to search by source filename or relative folder. Combine the search with the status filter. Select a row to see its paths, size, warnings, and SHA-256 when available.
 - **Retry failed files** processes failed entries using the format, encoding settings and destination of the completed batch. It preserves existing outputs by choosing a free filename. Discovery errors remain visible in **Overview** and can be revisited by starting a new folder scan.
 - **Last results** keeps the latest completed batch for each tab during the current session. Enable the JSON report before conversion to keep a record on disk.
 
@@ -102,7 +113,7 @@ Keep a master copy of the sources. Convert a few representative assets first and
 | Audio that must remain lossless | **Game audio (FLAC)** for supported PCM inputs | Sample format and playback support |
 | Cinematics | **Game cinematic (HEVC)** or the existing **High quality 1080p** H.264 preset | Playback on target devices, frame pacing, and color. The HEVC preset is intended for SDR video |
 
-The indexed PNG candidate must match the source pixels and alpha after any requested resize. The encoder compares actual file sizes for eligible PNG, JPEG, WebP and TIFF candidates. JPEG comparisons keep the chosen quality setting. Automatic WebP preserves low-color images and also tries lossless encoding on eligible still images when it can produce a smaller result. Choosing a compact codec or lowering resolution, bitrate or quality trades storage against fidelity. The video **Max MiB** limit can shorten a clip.
+The indexed PNG candidate must match the source pixels and alpha after any requested resize. The encoder compares actual file sizes for eligible PNG, JPEG, WebP and TIFF candidates. JPEG comparisons keep the chosen quality setting. Automatic WebP preserves low-color images and also tries lossless encoding on eligible still images when it can produce a smaller result. Choosing a compact codec or lowering resolution, bitrate or quality trades storage against fidelity. The video **Max MiB** setting checks the size of the completed clip.
 
 The converter reports loose-file sizes in bytes. A game engine may encode the sources again during import. Check the compressed package in Play Console and the size after app thinning in App Store Connect. [Android game size guide](https://developer.android.com/games/optimize/game-size) · [Apple app size guide](https://developer.apple.com/documentation/xcode/reducing-your-app-s-size)
 
@@ -229,7 +240,7 @@ FFmpeg is resolved in this order:
 3. The executable provided by `imageio-ffmpeg`.
 4. An `ffmpeg` command on `PATH`.
 
-Images and documents stay available when FFmpeg is missing. The Diagnostics tab shows the selected FFmpeg provider, LibreOffice if present, and anonymized paths. Audio and video conversion accepts local files through the supported media demuxers. FFmpeg reports progress for both media types, and cancellation cleans up staged outputs. Fitted, cropped and stretched video sizes are made even for `yuv420p`. The optional **Max MiB** may shorten the video. The app checks the output size before publishing the file.
+Images and documents stay available when FFmpeg is missing. The Diagnostics tab shows the selected FFmpeg provider, LibreOffice if present, and anonymized paths. Audio and video conversion accepts local files through the supported media demuxers. FFmpeg reports progress for both media types, and cancellation cleans up staged outputs. Fitted, cropped and stretched video sizes are made even for `yuv420p`. With **Max MiB** enabled, the encoder processes the full clip. An oversized result is discarded before publication and the file details suggest settings to change.
 
 ## Run from source
 
@@ -335,7 +346,7 @@ All processing is local. Files are not uploaded, and the application has no netw
 - Release binaries are not code-signed.
 - FFmpeg codec support and patent considerations vary by build and jurisdiction.
 - Metadata and ICC preservation depend on the selected format and are intentionally limited for some image outputs.
-- CRF targets visual quality. The optional Max MiB field can shorten the video or reject a result that exceeds the selected size.
+- CRF targets visual quality. The optional Max MiB field discards a completed encode that exceeds the selected size. Allow temporary disk space for the full encode.
 - Animations longer than 500 frames cannot be preserved or extracted in a single conversion.
 - No installer or automatic updater is provided.
 

@@ -12,7 +12,8 @@ from i18n import DEFAULT_LANGUAGE, Language, current_language, set_language
 from presets import SettingsStore
 from ui.app import ConverterApp
 from ui.base import BatchRequest, FinishedBatch
-from ui.summary_dialog import FileResults, PAGE_SIZE
+from ui.file_list import PAGE_SIZE
+from ui.summary_dialog import FileResults
 
 
 def find_notebook(widget):
@@ -186,9 +187,9 @@ class LanguageSelectorTests(unittest.TestCase):
         browser = FileResults(
             app.container, BatchSummary(len(records), records, 2), source_root
         )
-        self.assertEqual(len(browser.table.get_children()), PAGE_SIZE)
-        browser.next.invoke()
-        self.assertEqual(len(browser.table.get_children()), 2)
+        self.assertEqual(len(browser.listing.table.get_children()), PAGE_SIZE)
+        browser.listing.next.invoke()
+        self.assertEqual(len(browser.listing.table.get_children()), 2)
         browser.filter.set(
             next(
                 label
@@ -197,7 +198,12 @@ class LanguageSelectorTests(unittest.TestCase):
             )
         )
         browser.apply_filter()
-        self.assertEqual(len(browser.table.get_children()), 1)
+        self.assertEqual(len(browser.listing.table.get_children()), 1)
+        self.assertIn("Broken image", browser.details.get("1.0", "end-1c"))
+        browser.query.set("asset")
+        self.assertFalse(browser.listing.table.get_children())
+        self.assertNotIn("Broken image", browser.details.get("1.0", "end-1c"))
+        browser.query.set("CORRUPT")
         self.assertIn("Broken image", browser.details.get("1.0", "end-1c"))
 
     def test_only_one_notebook_survives_a_rebuild(self) -> None:

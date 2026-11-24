@@ -5,7 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from batch_processing import checked_output_root, safe_output_directory
+from error_handling import UserFacingError
 from filename_normalization import collision_keys, output_filename
+from i18n import t
 
 IMAGE_FORMATS = {
     "WebP": ("WEBP", ".webp"),
@@ -84,7 +86,10 @@ def batch_output_root(
 ) -> Path:
     parent = options.get("destination_parent")
     selected = parent if isinstance(parent, Path) else source_root
-    return checked_output_root(selected / f"convertidos_{output_format.lower()}")
+    destination = checked_output_root(selected / f"convertidos_{output_format.lower()}")
+    if destination == source_root or destination in source_root.parents:
+        raise UserFacingError(t("ui.error.destination_contains_source"))
+    return destination
 
 
 def batch_name_collision_keys(

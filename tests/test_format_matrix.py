@@ -430,6 +430,46 @@ class FormatMatrixTests(unittest.TestCase):
                     choose_engine(source, output, DocumentSettings(), True), "builtin"
                 )
 
+    def test_size_limited_video_keeps_all_frames_or_preserves_previous_output(self):
+        ffmpeg = self._ffmpeg()
+        source = self.root / "clip.mkv"
+        self.run_ffmpeg(
+            ffmpeg,
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=s=640x360:r=24:d=2,noise=alls=65:allf=t+u",
+            "-c:v",
+            "ffv1",
+            str(source),
+        )
+        folder = self.root / "convertidos_mp4"
+        folder.mkdir()
+        target = folder / "clip.mp4"
+        target.write_bytes(b"previous output")
+        settings = VideoSettings(
+            "libx264",
+            "aac",
+            None,
+            None,
+            "preserve",
+            None,
+            12,
+            remove_audio=True,
+            max_size_mb=1,
+        )
+        options = {"video_settings": settings, "output_policy": "overwrite"}
+        (failed,) = convert_batch(VideoPanel, self.root, [source], "MP4", options)
+        self.assertIs(failed.status, ResultStatus.FAILED)
+        self.assertEqual(target.read_bytes(), b"previous output")
+        self.assertEqual(list(folder.iterdir()), [target])
+
+        options["video_settings"] = replace(settings, width=96, height=64)
+        (success,) = convert_batch(VideoPanel, self.root, [source], "MP4", options)
+        self.assertIs(success.status, ResultStatus.CONVERTED, success.error_message)
+        self.assertLessEqual(target.stat().st_size, settings.max_size_bytes)
+        self.assertEqual(self.frame_count(self.decode_media(ffmpeg, target)), 48)
+
     def _ffmpeg(self) -> str:
         info = resolve_ffmpeg()
         if info is None:

@@ -36,6 +36,7 @@ from output_policy import OutputPolicy
 from presets import SettingsStore
 from process_control import stop_process
 from ui import theme
+from ui.batch_review import BatchReview
 from ui.formats import batch_output_root
 from ui.summary_dialog import show_summary
 
@@ -55,6 +56,7 @@ class BatchRequest:
     recursive: bool
     options: dict[str, object]
     destination_parent: Path | None
+    discovery_errors: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,15 +174,17 @@ class ConverterPanel(ttk.Frame):
             command=self.select_folder,
         )
         self.folder_button.grid(row=0, column=1)
+        self.review_button = ttk.Button(
+            selection_row, text=t("ui.review.title"), command=self.review
+        )
+        self.review_button.grid(row=1, column=1, sticky="e", pady=(8, 0))
 
         self.recursive_check = ttk.Checkbutton(
             selection_row,
             text=t("ui.check.recursive"),
             variable=self.recursive,
         )
-        self.recursive_check.grid(
-            row=1, column=0, columnspan=2, sticky="w", pady=(8, 0)
-        )
+        self.recursive_check.grid(row=1, column=0, sticky="w", pady=(8, 0))
         self.recursive_check.state(("disabled",))
 
         self.encoding_column = ttk.Frame(self)
@@ -461,9 +465,9 @@ class ConverterPanel(ttk.Frame):
 
     def _refresh_source_controls(self) -> None:
         selected = self.selection.get()
-        self.convert_button.state(
-            ("!disabled" if selected and not self.busy else "disabled",)
-        )
+        state = ("!disabled" if selected and not self.busy else "disabled",)
+        self.convert_button.state(state)
+        self.review_button.state(state)
         folder = selected and not self.selected_files and Path(selected).is_dir()
         self.recursive_check.state(
             ("!disabled" if folder and not self.busy else "disabled",)
@@ -536,8 +540,46 @@ class ConverterPanel(ttk.Frame):
             self.restore_sources(path_text, ())
 
     def start(self) -> None:
-        if self.busy or self.closing:
+        if request := self.capture_request():
+            self._start_batch(request)
+
+    def review(self) -> None:
+        request = self.capture_request()
+        if request is None:
             return
+        try:
+            destination = batch_output_root(
+                request.source_root,
+                request.output_format,
+                {"destination_parent": request.destination_parent},
+            )
+        except (OSError, ValueError, UserFacingError) as error:
+            messagebox.showerror(
+                t("ui.dialog.conversion_error_title"),
+                describe_error(error).message,
+                parent=self.root,
+            )
+            return
+
+        def start_selected(files: tuple[Path, ...], errors: tuple[str, ...]) -> None:
+            if not self.closing and not self.busy:
+                self._start_batch(
+                    replace(request, files=files, discovery_errors=errors)
+                )
+
+        BatchReview(
+            self.root,
+            root=request.source_root,
+            files=request.files,
+            extensions=self.extensions,
+            recursive=request.recursive,
+            destination=destination,
+            start=start_selected,
+        )
+
+    def capture_request(self) -> BatchRequest | None:
+        if self.busy or self.closing:
+            return None
         try:
             source_root, files = self._batch_sources()
         except (OSError, ValueError) as error:
@@ -554,16 +596,14 @@ class ConverterPanel(ttk.Frame):
             )
             return
 
-        self._start_batch(
-            BatchRequest(
-                source_root,
-                tuple(files) if files is not None else None,
-                self.output_format.get(),
-                self.quality.get(),
-                self.recursive.get(),
-                self.conversion_options(),
-                self.destination_parent,
-            )
+        return BatchRequest(
+            source_root,
+            tuple(files) if files is not None else None,
+            self.output_format.get(),
+            self.quality.get(),
+            self.recursive.get(),
+            self.conversion_options(),
+            self.destination_parent,
         )
 
     def _start_batch(self, request: BatchRequest) -> None:
@@ -597,6 +637,7 @@ class ConverterPanel(ttk.Frame):
                 request.quality,
                 request.recursive,
                 options,
+                request.discovery_errors,
             ),
             daemon=True,
         ).start()
@@ -613,6 +654,7 @@ class ConverterPanel(ttk.Frame):
                 batch.request,
                 files=files,
                 recursive=False,
+                discovery_errors=(),
                 options={
                     **batch.request.options,
                     "output_policy": OutputPolicy.UNIQUE.value,
@@ -657,19 +699,18 @@ class ConverterPanel(ttk.Frame):
         quality: int,
         recursive: bool,
         options: dict[str, object],
+        initial_errors: tuple[str, ...] = (),
     ) -> None:
-        discovery_errors: list[str] = []
+        discovery_errors = list(initial_errors)
         if is_link(source_root):
             raise UserFacingError(t("discovery.unsafe_path"))
-        destination = batch_output_root(source_root, output_format, options)
-        if destination == source_root or destination in source_root.parents:
-            raise UserFacingError(t("ui.error.destination_contains_source"))
+        batch_output_root(source_root, output_format, options)
         if files is None:
             discovery = discover_files(
                 source_root, self.extensions, recursive, self.cancel_event
             )
             files = discovery.files
-            discovery_errors = discovery.errors
+            discovery_errors.extend(discovery.errors)
             if discovery.cancelled:
                 self.root.after(0, self.conversion_cancelled, 0)
                 return

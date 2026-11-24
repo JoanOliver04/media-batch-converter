@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from tkinter import Canvas, Tk, ttk
+from tkinter.scrolledtext import ScrolledText
 
-from ui.theme import PANEL, SIGNAL
+from ui.theme import FONT_BODY, PANEL, SIGNAL, SURFACE, TEXT
 
 
 class ScrollableTab(ttk.Frame):
@@ -116,3 +117,31 @@ class ScrollableTab(ttk.Frame):
     def _scroll_units(self, amount: int) -> str:
         self.canvas.yview_scroll(amount, "units")
         return "break"
+
+
+def readout(parent, height: int) -> ScrolledText:
+    widget = ScrolledText(
+        parent,
+        wrap="word",
+        height=height,
+        width=1,
+        font=FONT_BODY,
+        background=PANEL,
+        foreground=TEXT,
+        insertbackground=SIGNAL,
+        relief="flat",
+        borderwidth=0,
+        padx=10,
+        pady=8,
+    )
+    widget.vbar.configure(
+        background=PANEL, troughcolor=SURFACE, activebackground=SIGNAL, borderwidth=0
+    )
+    return widget
+
+
+def set_readout(widget: ScrolledText, value: str) -> None:
+    widget.configure(state="normal")
+    widget.delete("1.0", "end")
+    widget.insert("1.0", value)
+    widget.configure(state="disabled")

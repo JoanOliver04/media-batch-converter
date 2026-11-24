@@ -12,6 +12,7 @@ from conversion_results import (
     format_duration,
     summary_text,
 )
+from ui.summary_dialog import savings_text
 
 
 def result(
@@ -32,6 +33,18 @@ def result(
 
 
 class FileResultTests(unittest.TestCase):
+    def test_visible_savings_only_compare_published_outputs(self) -> None:
+        self.assertEqual(
+            savings_text(result("same", ResultStatus.CONVERTED, 40, 40)), "0 B"
+        )
+        self.assertEqual(
+            savings_text(result("larger", ResultStatus.CONVERTED, 40, 60)), "−20 B"
+        )
+        self.assertEqual(
+            savings_text(result("smaller", ResultStatus.CONVERTED, 60, 40)), "20 B"
+        )
+        self.assertEqual(savings_text(result("skip", ResultStatus.SKIPPED, 400)), "—")
+
     def test_bytes_and_percentage(self) -> None:
         item = result("one", ResultStatus.CONVERTED, 1000, 250)
         self.assertEqual(item.bytes_saved, 750)

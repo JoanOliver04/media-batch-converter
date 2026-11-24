@@ -4,6 +4,13 @@ All notable changes are documented here. This project follows [Semantic Versioni
 
 ## Unreleased
 
+## 0.4.0 - 2026-11-24
+
+- Review a batch before converting. Search relative paths, include or exclude files across pages, and see the selected input size.
+- Search completed results by filename or folder with Ctrl+F, combine the search with the status filter, and compare measured savings per file.
+- The diagnostics report loads when its tab first opens.
+- Video size limits now apply to the complete encode. Oversized videos leave any previous output intact.
+
 ## 0.3.0 - 2026-11-21
 
 ### Added

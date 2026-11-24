@@ -79,10 +79,11 @@ class VideoEncodingTests(unittest.TestCase):
         stretch = build_video_filter(replace(odd, aspect_mode="stretch"))
         self.assertTrue(stretch.startswith("scale=1278:718"))
 
-    def test_max_size_emits_ffmpeg_fs_limit(self) -> None:
+    def test_max_size_keeps_the_full_encode(self) -> None:
         settings = replace(VIDEO_PRESETS[0].video_settings, max_size_mb=12)
         args = build_video_args("MP4", settings)
-        self.assertEqual(args[args.index("-fs") + 1], str(12 * 1024 * 1024))
+        self.assertNotIn("-fs", args)
+        self.assertEqual(settings.max_size_bytes, 12 * 1024 * 1024)
 
     def test_h264_audio_removal_and_faststart(self) -> None:
         settings = replace(VIDEO_PRESETS[0].video_settings, remove_audio=True)

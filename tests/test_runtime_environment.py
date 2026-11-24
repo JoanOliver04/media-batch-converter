@@ -60,6 +60,7 @@ class RuntimeEnvironmentTests(unittest.TestCase):
         ):
             self.assertEqual(missing_python_dependencies(), ["imageio-ffmpeg"])
 
+    @patch.dict(os.environ, FFMPEG_PATH="")
     def test_ffmpeg_resolution_prefers_bundled_then_provider_then_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

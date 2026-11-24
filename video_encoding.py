@@ -168,8 +168,8 @@ def build_video_args(container: str, settings: VideoSettings) -> list[str]:
         args.extend(("-b:a", "160k" if settings.audio_codec == "libopus" else "192k"))
     if settings.faststart and container.upper() in {"MP4", "MOV"}:
         args.extend(("-movflags", "+faststart"))
-    if settings.max_size_bytes is not None:
-        args.extend(("-fs", str(settings.max_size_bytes)))
+    # The batch checks the finished file's size before publication. FFmpeg's
+    # -fs can produce a playable but truncated clip and still exit successfully.
     return args
 
 

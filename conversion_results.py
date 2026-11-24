@@ -198,6 +198,24 @@ def format_duration(seconds: float) -> str:
     )
 
 
+def outcome_counts(summary: BatchSummary) -> tuple[tuple[str, int], ...]:
+    return (
+        ("summary.skipped_existing", summary.skipped_existing),
+        ("summary.skipped_up_to_date", summary.skipped_up_to_date),
+        (
+            "summary.skipped_no_savings",
+            summary.action_count(OutputAction.SKIP_NO_SAVINGS),
+        ),
+        ("summary.overwritten", summary.overwritten),
+        ("summary.renamed", summary.renamed),
+        ("summary.name_collisions", summary.name_collisions),
+        ("summary.warning_count", summary.warning_count),
+        ("summary.animation_preserved", summary.animation_count("preserve")),
+        ("summary.animation_extracted", summary.animation_count("extract_frames")),
+        ("summary.animation_first_frame", summary.animation_count("first_frame")),
+    )
+
+
 def summary_text(summary: BatchSummary) -> str:
     reduction = summary.percentage_reduction
     if summary.bytes_saved >= 0:
@@ -221,16 +239,7 @@ def summary_text(summary: BatchSummary) -> str:
             f"{t('summary.files_processed')}: {summary.files_processed}",
             f"{t('summary.converted')}: {summary.converted}",
             f"{t('summary.skipped')}: {summary.skipped}",
-            f"{t('summary.skipped_existing')}: {summary.skipped_existing}",
-            f"{t('summary.skipped_up_to_date')}: {summary.skipped_up_to_date}",
-            f"{t('summary.skipped_no_savings')}: {summary.action_count(OutputAction.SKIP_NO_SAVINGS)}",
-            f"{t('summary.overwritten')}: {summary.overwritten}",
-            f"{t('summary.renamed')}: {summary.renamed}",
-            f"{t('summary.name_collisions')}: {summary.name_collisions}",
-            f"{t('summary.warning_count')}: {summary.warning_count}",
-            f"{t('summary.animation_preserved')}: {summary.animation_count('preserve')}",
-            f"{t('summary.animation_extracted')}: {summary.animation_count('extract_frames')}",
-            f"{t('summary.animation_first_frame')}: {summary.animation_count('first_frame')}",
+            *(f"{t(key)}: {count}" for key, count in outcome_counts(summary)),
             f"{t('summary.failed')}: {summary.failed}",
             f"{t('summary.original_size')}: {format_bytes(summary.original_bytes)}",
             f"{t('summary.output_size')}: {format_bytes(summary.output_bytes)}",
